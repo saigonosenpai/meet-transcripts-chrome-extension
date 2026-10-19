@@ -92,7 +92,12 @@ assert.equal(path.dirname(file.filename), dayDir, "grouped in a folder per day")
 assert.ok(fs.existsSync(file.filename));
 fs.copyFileSync(file.filename, shots + "/saved.docx");
 
-// --- viewer: rename, save again -> one file, new name -----------------------------------------
+// --- the user's Word document is theirs once the call is over --------------------------------
+// Edited in Word, then the call renamed: the edits must survive. The viewer offers an update
+// instead (a new copy, or replace), never a silent rewrite.
+assert.equal((await fileState()).final, true, "saved as the call ended: final");
+fs.appendFileSync(file.filename, Buffer.from("notes typed in Word"));
+const edited = fs.readFileSync(file.filename);
 const v = await ctx.newPage();
 await v.setViewportSize({ width: 1200, height: 900 });
 await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(meta.id));
@@ -101,19 +106,71 @@ await v.click("#title");
 await v.keyboard.press("End");
 await v.keyboard.type(" (Q4)");
 await v.keyboard.press("Enter");
-await v.waitForTimeout(300);
+await v.waitForFunction(() => document.querySelector("#file").textContent.includes("Changed since"), null, { timeout: 10000 });
+await v.waitForTimeout(1000);
+assert.ok(fs.existsSync(file.filename) && fs.readFileSync(file.filename).equals(edited), "edited document left exactly as it was");
+assert.equal((await fileState()).filename, file.filename, "still the same document");
+assert.equal(await v.textContent("#saveNow"), "Update .docx…");
+// Update › Save as a new copy: a new document with the new name; the edited one stays.
 await v.click("#saveNow");
+await v.waitForSelector("#saveMenu.open");
+await v.click('#saveMenu [data-mode="copy"]');
 await v.waitForFunction(() => document.querySelector("#file").textContent.includes("(Q4)"));
 const renamed = await fileState();
 console.log("renamed:", path.basename(renamed.filename));
 assert.ok(path.basename(renamed.filename).includes("Weekly sync (Q4) - Alice"));
-assert.ok(fs.existsSync(renamed.filename), "new file exists");
-assert.ok(!fs.existsSync(file.filename), "old file removed");
-// Renaming re-saves on its own and Save was clicked too: let Chrome finish writing before
-// listing the folder (an unfinished download shows as "Unconfirmed ….crdownload").
-const listing = () => fs.readdirSync(path.dirname(renamed.filename));
+assert.ok(fs.existsSync(renamed.filename), "new copy exists");
+assert.ok(fs.readFileSync(file.filename).equals(edited), "the edited document is kept, untouched");
+assert.ok(!renamed.outdated && renamed.final, "the copy is up to date, and itself final");
+// Let Chrome finish writing before listing the folder (an unfinished download shows as
+// "Unconfirmed ….crdownload").
+const listing = () => fs.readdirSync(path.dirname(renamed.filename)).sort();
 for (let i = 0; i < 40 && listing().some((f) => f.endsWith(".crdownload")); i++) await v.waitForTimeout(250);
-assert.deepEqual(listing(), [path.basename(renamed.filename)]);
+assert.deepEqual(listing(), [path.basename(file.filename), path.basename(renamed.filename)].sort());
+// Save again › Replace: rewrites the call's own (current) document, nothing else.
+await v.click("#saveNow");
+await v.waitForSelector("#saveMenu.open");
+await v.click('#saveMenu [data-mode="replace"]');
+await v.waitForFunction((t) => document.querySelector("#saveNow") && !document.querySelector("#saveNow").disabled, renamed.savedAt);
+await v.waitForTimeout(800);
+const replaced = await fileState();
+assert.equal(replaced.filename, renamed.filename, "replaced in place");
+assert.ok(replaced.savedAt > renamed.savedAt, "rewritten");
+assert.ok(fs.readFileSync(file.filename).equals(edited), "the edited document still untouched");
+console.log("Word edits: kept after a rename; Update offers a new copy or replace");
+// The edited original is the user's now; out of the way for the rest of the test.
+fs.unlinkSync(file.filename);
+
+// --- find in a transcript: text with &, <, > and " highlights correctly -----------------------------
+{
+  const T0 = Date.now() - 600_000;
+  await v.evaluate((T0) => MT.saveMeeting({ id: "hl-1", code: "hig-hlig-hte", eventTitle: "Highlight test", startedAt: T0, endedAt: T0 + 60_000 },
+    [{ speaker: "Ann", text: 'Tom & Jerry said "a <b>bold</b> plan" > the old one.', ts: T0 }]), T0);
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html#hl-1`);
+  await v.waitForSelector(".turn p");
+  const shown = async (q) => {
+    await v.fill("#search", q);
+    await v.waitForTimeout(200);
+    return v.evaluate(() => { const p = document.querySelector(".turn p");
+      return { text: p.textContent, marks: [...p.querySelectorAll("mark")].map((m) => m.textContent), bold: !!p.querySelector("b") }; });
+  };
+  const said = 'Tom & Jerry said "a <b>bold</b> plan" > the old one.';
+  let r = await shown("a");
+  assert.equal(r.text, said, "text shown as written");
+  assert.deepEqual(r.marks, ["a", "a", "a"], "only the real a's marked (none inside &amp;)");
+  assert.ok(!r.bold, "no markup from the text");
+  r = await shown("&");
+  assert.deepEqual([r.text, r.marks], [said, ["&"]]);
+  r = await shown("<b>");
+  assert.deepEqual([r.text, r.marks], [said, ["<b>"]]);
+  r = await shown('"');
+  assert.deepEqual([r.text, r.marks], [said, ['"', '"']]);
+  await v.fill("#search", "");
+  await v.evaluate(() => MT.deleteMeeting("hl-1"));
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(meta.id));
+  await v.waitForSelector(".turn p");
+  console.log("find: &, <, > and \" highlight as written");
+}
 await v.screenshot({ path: shots + "/viewer.png" });
 
 // --- delete is immediate and undoable (no blocking confirm dialog) ---------------------------------
@@ -553,7 +610,7 @@ console.log("zoom:", zm.title, "->", path.basename(zFile.filename), zm.link);
 assert.equal(zm.title, "Call with Ann Lee, Ben Cho");
 assert.equal(zm.link, "https://zoom.us/j/9876543210");
 
-// --- rename a speaker, here and in future calls; the file follows ------------------------------------
+// --- rename a speaker, here and in future calls; the finished call's document is offered an update ---
 await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(zm.id));
 await v.click('button.spk[data-name="Ben Cho"]');
 await v.waitForSelector("#renameBox.open");
@@ -562,11 +619,16 @@ await v.check("#renameFuture");
 await v.screenshot({ path: shots + "/rename.png" });
 await v.click('#renameBox button[type="submit"]');
 await v.waitForSelector('button.spk[data-name="Benjamin Cho"]');
+for (let i = 0; i < 40 && !(await fileOf(zm.id)).outdated; i++) await v.waitForTimeout(250);
+assert.ok((await fileOf(zm.id)).outdated && fs.existsSync(zFile.filename), "document left as it was, marked out of date");
+await v.click("#saveNow");
+await v.waitForSelector("#saveMenu.open");
+await v.click('#saveMenu [data-mode="replace"]');
 for (let i = 0; i < 40 && !(await fileOf(zm.id)).filename.includes("Benjamin"); i++) await v.waitForTimeout(250);
 const zRenamed = await fileOf(zm.id);
-console.log("speaker renamed:", path.basename(zRenamed.filename));
+console.log("speaker renamed, then Update › Replace:", path.basename(zRenamed.filename));
 assert.equal(path.basename(zRenamed.filename), `${date} - Call with Ann Lee, Benjamin Cho.docx`);
-assert.ok(!fs.existsSync(zFile.filename), "old file replaced");
+assert.ok(!fs.existsSync(zFile.filename), "replaced: the old name is gone");
 assert.deepEqual((await v.evaluate(() => MT.getSettings())).nameMap, { "ben cho": "Benjamin Cho" });
 zLines = await sw.evaluate((k) => chrome.storage.local.get(k).then((d) => d[k]), "t:" + zm.id);
 assert.deepEqual(zLines.map((e) => e.speaker), ["Ann Lee", "Benjamin Cho", "Ann Lee"]);
@@ -620,13 +682,15 @@ await close();
   await v.evaluate(() => chrome.runtime.sendMessage({ type: "ping" }).catch(() => {}));
   const newDoc = path.join(run.downloads, "Meeting Transcripts", "2026-10-01", "2026-10-01 - Old call - Ann.docx");
   const newLib = path.join(run.downloads, "Meeting Transcripts", "library.json");
-  for (let i = 0; i < 80 && !(fs.existsSync(newDoc) && fs.existsSync(newLib) && !fs.existsSync(old.lib)); i++) await new Promise((r) => setTimeout(r, 250));
-  assert.ok(fs.existsSync(newDoc), "document moved to Meeting Transcripts");
-  assert.ok(!fs.existsSync(old.docx), "old document removed");
+  const fileRec = () => v.evaluate(() => chrome.storage.local.get("f:abc-defg-hij-1").then((d) => d["f:abc-defg-hij-1"]));
+  for (let i = 0; i < 80 && !(fs.existsSync(newLib) && !fs.existsSync(old.lib) && (await fileRec()).outdated); i++) await new Promise((r) => setTimeout(r, 250));
   assert.ok(fs.existsSync(newLib) && !fs.existsSync(old.lib), "library.json moved");
-  // Re-saved compressed: the first zip entry's method is deflate (8), not store (0).
-  assert.equal(fs.readFileSync(newDoc).readUInt16LE(8), 8, "re-saved document is compressed");
-  console.log("upgrade: moved to", path.relative(run.downloads, newDoc));
+  // A finished call's document may hold the user's own edits: an update never rewrites, moves
+  // or deletes it. The viewer offers to update it instead.
+  assert.ok(fs.existsSync(old.docx), "old document left as it was");
+  assert.ok(!fs.existsSync(newDoc), "no rewritten copy");
+  assert.equal((await fileRec()).outdated, true, "marked as out of date, for the viewer to offer an update");
+  console.log("upgrade: library.json moved; the finished call's document left untouched, offered for update");
   await run.close();
 }
 

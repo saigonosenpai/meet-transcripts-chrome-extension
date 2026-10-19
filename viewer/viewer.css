@@ -154,6 +154,10 @@ header { position: relative; }
 .file .doc b { font-weight: 500; }
 .file .sep { color: var(--tertiary); }
 .file .err { flex-basis: 100%; color: var(--danger); white-space: normal; }
+.file .stale { color: #b25000; cursor: help; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .file .stale { color: #ff9f0a; } }
+.menu.inline { display: inline-flex; }
+.menu.inline .popover { left: 0; right: auto; transform-origin: top left; white-space: normal; }
 
 /* Toolbar: translucent, content scrolls under it; a soft edge instead of a hard rule. */
 .toolbar {

@@ -12,11 +12,12 @@ let libIndex = null;  // id -> lowercased transcript text, built on first librar
 
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
+// Matches are found in the text as written, then each piece is escaped: searching "a" in
+// "Tom & Jerry" must not match inside the "&amp;" the escaping adds.
 function highlight(text) {
-  const safe = esc(text);
-  if (!query) return safe;
-  const re = new RegExp(esc(query).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-  return safe.replace(re, (m) => `<mark>${m}</mark>`);
+  if (!query) return esc(text);
+  const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+  return text.split(re).map((piece, i) => (i % 2 ? `<mark>${esc(piece)}</mark>` : esc(piece))).join("");
 }
 
 const initials = (name) =>
@@ -167,7 +168,15 @@ async function renderFile() {
   } else {
     html += `<span class="doc">${DOC_ICON}<span>Not saved as a Word document yet</span></span>`;
   }
-  html += `<button id="saveNow" class="btn link">${f && f.downloadId ? "Save again" : "Save .docx"}</button>`;
+  // A finished call's document may hold the user's edits: rewriting it is a choice, not a click.
+  const settled = MT.isSettled(current, f);
+  if (f && f.outdated) html += `<span class="sep">·</span><span class="stale" title="The call was renamed, or speakers, after this document was saved. It isn't rewritten automatically, in case you edited it in Word.">Changed since</span>`;
+  html += settled
+    ? `<span class="menu inline"><button id="saveNow" class="btn link" aria-haspopup="menu" aria-expanded="false">${f.outdated ? "Update .docx…" : "Save again…"}</button>` +
+      `<div id="saveMenu" class="popover" role="menu">` +
+      `<button data-mode="copy" role="menuitem">Save as a new copy<span>keeps this one</span></button>` +
+      `<button data-mode="replace" role="menuitem">Replace this document<span>edits made in Word are lost</span></button></div></span>`
+    : `<button id="saveNow" class="btn link">${f && f.downloadId ? "Save again" : "Save .docx"}</button>`;
   if (f && f.error) html += `<span class="err">${esc(f.error)}</span>`;
   if (f && f.error && f.askSetting) html += `<button id="dlSettings" class="btn link">Open Chrome download settings</button>`;
   $("file").innerHTML = html;
@@ -176,12 +185,21 @@ async function renderFile() {
   if ($("showFile")) $("showFile").addEventListener("click", () =>
     chrome.runtime.sendMessage({ type: "showFile", downloadId: f.downloadId }));
   const btn = $("saveNow");
-  btn.addEventListener("click", async () => {
+  const save = async (mode) => {
     btn.disabled = true;
     btn.textContent = "Saving…";
-    const r = await chrome.runtime.sendMessage({ type: "saveNow", id: current.id });
-    toast(r.ok ? "Saved to Downloads/Meeting Transcripts" : "Couldn't save: " + r.error);
+    const r = await chrome.runtime.sendMessage({ type: "saveNow", id: current.id, mode });
+    toast(r.ok ? (mode === "copy" ? "Saved as a new copy; the earlier document is kept" : "Saved to Downloads/Meeting Transcripts")
+      : "Couldn't save: " + r.error);
     renderFile();
+  };
+  if (!settled) return btn.addEventListener("click", () => save("replace"));
+  const menu = $("saveMenu");
+  const show = (open) => { if (open) keepInWindow(menu); menu.classList.toggle("open", open); btn.setAttribute("aria-expanded", String(open)); };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); show(!menu.classList.contains("open")); });
+  menu.addEventListener("click", (e) => {
+    const mode = e.target.closest("button")?.dataset.mode;
+    if (mode) { show(false); save(mode); }
   });
 }
 
@@ -347,6 +365,10 @@ function bindActions() {
     setMenu(!$("exportMenu").classList.contains("open"));
   });
   document.addEventListener("click", () => setMenu(false));
+  // The Save menu of a finished call's document (rebuilt with the file line).
+  const closeSaveMenu = () => { $("saveMenu")?.classList.remove("open"); $("saveNow")?.setAttribute("aria-expanded", "false"); };
+  document.addEventListener("click", closeSaveMenu);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSaveMenu(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
   $("exportMenu").addEventListener("click", async (e) => {
     const kind = e.target.closest("button")?.dataset.export;
