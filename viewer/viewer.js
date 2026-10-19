@@ -389,6 +389,7 @@ function bindActions() {
       label: "Undo",
       run: async () => {
         await MT.saveMeeting(meta, lines);
+        await MT.untrash(meta.id);
         if (meta.renamed) await MT.updateMeeting(meta.id, { title: meta.title, renamed: true });
         if (file) await MT.setFile(meta.id, file);
         location.hash = encodeURIComponent(meta.id);
@@ -421,7 +422,7 @@ function bindActions() {
     if (!picked.length) return;
     const btn = $("importBtn");
     btn.disabled = true;
-    const result = await restoreFrom(picked, (text) => (btn.lastChild.textContent = ` ${text}`));
+    const result = await restoreFrom(picked, (text) => (btn.lastChild.textContent = ` ${text}`), { chosen: input.id === "importInput" });
     btn.disabled = false;
     btn.lastChild.textContent = " Import…";
     libIndex = null;
@@ -485,8 +486,11 @@ chrome.storage.onChanged.addListener(async (changes) => {
 // Imports the picked files: library files (library.json with everything and settings, or a
 // library exported on another computer), then any .docx they don't cover (calls saved after the
 // last library.json, or files from before it).
-async function restoreFrom(picked, progress) {
-  let added = 0, already = 0, failed = 0, settingsRestored = false;
+// `chosen`: files picked one by one (Import › File…), not a whole folder: a call deleted here
+// comes back if its file is chosen; from a folder, it's skipped.
+async function restoreFrom(picked, progress, { chosen = false } = {}) {
+  let added = 0, already = 0, failed = 0, skipped = 0, settingsRestored = false;
+  const trash = await MT.getTrash(), back = [];
   const isKnown = (meta, title) => meetings.some((m) => m.id === meta.id ||
     (Math.abs(m.startedAt - meta.startedAt) < 120_000 && MT.title(m) === title));
 
@@ -511,10 +515,15 @@ async function restoreFrom(picked, progress) {
       continue;
     }
     if (Object.keys(lib.settings).length) { await MT.saveSettings(lib.settings); settingsRestored = true; }
+    // library.json from before a reinstall: the calls deleted back then stay deleted.
+    Object.assign(trash, lib.trash);
+    await chrome.storage.local.set({ trash: { ...lib.trash, ...(await MT.getTrash()) } });
     const store = {};
     const { meetings: stored = {} } = await chrome.storage.local.get("meetings");
     for (const m of lib.meetings) {
       if (isKnown(m, MT.title(m))) { already++; continue; }
+      if (!chosen && MT.isTrashed(trash, m)) { skipped++; continue; }
+      back.push(m.id);
       stored[m.id] = m;
       store["t:" + m.id] = lib.transcripts[m.id];
       if (lib.files[m.id]) store["f:" + m.id] = lib.files[m.id];
@@ -527,6 +536,11 @@ async function restoreFrom(picked, progress) {
   // Word files of meetings already here (by their file name) aren't even opened.
   const known = new Set(meetings.map((m) => MT.docName(m).toLowerCase()));
   const docs = picked.filter((f) => /\.docx$/i.test(f.name) && !f.name.startsWith("~$"));
+  if (!chosen) {
+    const gone = docs.filter((f) => MT.isTrashed(trash, { file: f.name }));
+    skipped += gone.length;
+    docs.splice(0, docs.length, ...docs.filter((f) => !gone.includes(f)));
+  }
   already += docs.filter((f) => known.has(f.name.replace(/( \(\d+\))?\.docx$/i, "").toLowerCase())).length;
   docs.splice(0, docs.length, ...docs.filter((f) => !known.has(f.name.replace(/( \(\d+\))?\.docx$/i, "").toLowerCase())));
   for (const [i, file] of docs.entries()) {
@@ -534,19 +548,24 @@ async function restoreFrom(picked, progress) {
     try {
       const { meta, entries: lines } = await DOCX_IMPORT.parse(await file.arrayBuffer(), file.name);
       if (isKnown(meta, MT.title({ ...meta, speakers: [] }))) { already++; continue; }
+      if (!chosen && MT.isTrashed(trash, meta)) { skipped++; continue; }
       await MT.saveMeeting(meta, lines);
+      back.push(meta.id); // and the call it was saved from (its id kept times to the millisecond):
+      for (const [id] of Object.entries(trash).filter(([id]) => MT.isTrashed({ [id]: trash[id] }, { file: file.name }))) back.push(id);
       meetings = await MT.listMeetings();
       added++;
     } catch {
       failed++;
     }
   }
-  if (!libs.length && !docs.length) return "No library or Word files to import there";
+  if (!libs.length && !docs.length && !skipped) return "No library or Word files to import there";
   // From now on, keep library.json up to date: once there's a library to keep. Importing nothing
   // (an empty or wrong file) mustn't let an empty library replace one waiting in the folder.
   if (added || libs.some((l) => !l.device && l.meetings.length)) await chrome.storage.local.set({ libraryReady: true });
+  if (chosen && back.length) await MT.untrash(back); // brought back on purpose
   return [`Imported ${added} call${added === 1 ? "" : "s"}`, settingsRestored && "settings",
-    already && `${already} already here`, failed && `${failed} couldn't be read`].filter(Boolean).join(" · ");
+    already && `${already} already here`, skipped && `${skipped} you deleted, skipped`,
+    failed && `${failed} couldn't be read`].filter(Boolean).join(" · ");
 }
 
 // "#<meeting id>" opens a meeting; "#welcome" (after a fresh install) points at Restore.

@@ -858,4 +858,41 @@ await close();
   await run.close();
 }
 
+// --- a deleted call stays deleted when the folder is imported; choosing its file brings it back ---
+{
+  const run = await launch();
+  const v = await run.ctx.newPage();
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html`);
+  const T0 = Date.now() - 3600_000;
+  const m = { id: "del-gone-now-" + T0, code: "del-gone-now", eventTitle: "Deleted call", startedAt: T0, endedAt: T0 + 300_000, speakers: ["Ann"] };
+  await v.evaluate(async (m) => {
+    await chrome.storage.local.set({ libraryReady: true });
+    await MT.saveMeeting(m, [{ speaker: "Ann", text: "This call gets deleted.", ts: m.startedAt }]);
+  }, m);
+  const saved = await v.evaluate((id) => chrome.runtime.sendMessage({ type: "saveNow", id }), m.id);
+  assert.ok(saved.ok && fs.existsSync(saved.result.filename), "its Word document saved");
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(m.id));
+  await v.waitForSelector(".turn p");
+  await v.click("#delete");
+  await v.waitForSelector("#toast.show");
+  await v.evaluate(() => hideToast());
+  assert.ok(fs.existsSync(saved.result.filename), "its document is still in the folder");
+  const lib = path.join(run.downloads, "Meeting Transcripts", "library.json");
+  // The folder: its Word document (and library.json, once written) are there; the call stays deleted.
+  await v.evaluate(() => document.getElementById("importFolder").removeAttribute("webkitdirectory"));
+  await v.setInputFiles("#importFolder", [saved.result.filename, ...(fs.existsSync(lib) ? [lib] : [])]);
+  await v.waitForSelector("#toast.show");
+  const folderResult = await v.textContent("#toastText");
+  assert.match(folderResult, /Imported 0 calls · .*1 you deleted, skipped/, folderResult);
+  assert.equal((await v.evaluate(() => MT.listMeetings())).length, 0, "not brought back");
+  await v.evaluate(() => hideToast());
+  // Import › File… with its document chosen: back, and no longer remembered as deleted.
+  await v.setInputFiles("#importInput", [saved.result.filename]);
+  await v.waitForFunction(() => /Imported 1 call/.test(document.getElementById("toastText").textContent));
+  assert.equal((await v.evaluate(() => MT.listMeetings())).length, 1, "brought back on purpose");
+  assert.deepEqual(await v.evaluate(() => MT.getTrash()), {}, "forgotten as deleted");
+  console.log("deleted calls: skipped by a folder import (" + folderResult + "); back when their file is chosen");
+  await run.close();
+}
+
 console.log("ALL CHECKS PASSED");

@@ -189,7 +189,7 @@ async function writeLibraryFile() {
     if (k.startsWith("f:")) files[k.slice(2)] = v;
   }
   const json = JSON.stringify({ app: "meet-transcripts", kind: "library", version: 1, savedAt: Date.now(),
-    settings, meetings: all.meetings || {}, transcripts, files });
+    settings, meetings: all.meetings || {}, transcripts, files, trash: all.trash || {} });
   const bytes = new TextEncoder().encode(json);
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
