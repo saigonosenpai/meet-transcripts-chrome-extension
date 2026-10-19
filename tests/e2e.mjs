@@ -483,6 +483,8 @@ console.log("restored meetings:", titlesAfter.join(" | "));
   assert.match(report.captionLayout, /call layout:[\s\S]*main#stage/);
   assert.match(report.captionLayout, /stage path:\n  video [\s\S]*main#stage[^\n]*bottom/);
   assert.ok(!/launch|Friday|thanks/i.test(JSON.stringify(report)), "no caption text in the report");
+  assert.ok(!/Alice|Walker|Carol|Bob|Sam Lee/.test(JSON.stringify(report)), "no participant names in the report (tile labels hidden)");
+  assert.match(JSON.stringify(report), /aria-label=Captions/, "control labels kept");
   // The in-call pill has a switch for it. The pill is in a closed shadow root, which only the
   // DevTools protocol reaches: find its "Show captions" button there and click it.
   const cdp = await hp.context().newCDPSession(hp);

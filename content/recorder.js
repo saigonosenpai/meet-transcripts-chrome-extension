@@ -761,10 +761,17 @@
   // popup copies this report: the structure of the page around the captions, never the
   // caption text itself.
 
+  // Labels are shown only when every word is a generic control word: tiles and buttons on a call
+  // page carry participants' names ("Pin Arthy Moorthy"), and a report must hold no names.
+  const SAFE_WORDS = new Set(("captions caption turn on off open close jump to the most recent settings type language and " +
+    "speech microphone mic camera video leave call end hang up more options live show hide chat people participants present " +
+    "presenting now raise lower hand reactions closed transcript transcription subtitles c d e menu toolbar controls meeting " +
+    "details activities share screen apps panel") .split(" "));
+  const safeLabel = (label) => (label.toLowerCase().match(/[a-z]+/g) || []).every((w) => SAFE_WORDS.has(w));
   function describe(el) {
     const attrs = ["data-tid", "role", "aria-live", "jsname"].map((a) => el.getAttribute(a) && `[${a}=${el.getAttribute(a)}]`).filter(Boolean);
     const aria = el.getAttribute("aria-label");
-    if (aria) attrs.push(`[aria-label=${aria.slice(0, 40)}${aria.length > 40 ? "…" : ""}]`);
+    if (aria) attrs.push(safeLabel(aria) ? `[aria-label=${aria.slice(0, 40)}${aria.length > 40 ? "…" : ""}]` : "[aria-label=…]");
     // The page's first classes, plus ours (mt-…) wherever they are, to show what we changed.
     const all = typeof el.className === "string" ? el.className.trim().split(/\s+/).filter(Boolean) : [];
     const shown = [...all.filter((c) => !c.startsWith("mt-")).slice(0, 4), ...all.filter((c) => c.startsWith("mt-"))];

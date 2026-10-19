@@ -21,8 +21,8 @@
 <!-- Mimics Meet's caption DOM: one block per speaker turn, text revised in place. -->
 <!-- Account button from the "Ready to join?" screen; the extension reads your name from it. -->
 <a aria-label="Google Account: Sam Lee  (sam@example.com)" href="#" style="position:absolute;left:-999px">S</a>
-<main id="stage" class="stg"><!-- Meet's stage also holds full-size layers that aren't tiles. --><div id="layer" style="position:absolute;inset:0;pointer-events:none"></div><div id="grid"><video></video>
-<div data-participant-id="p1"><div class="zWGUib">Alice</div></div>
+<main id="stage" class="stg"><!-- Meet's stage also holds full-size layers that aren't tiles. --><div id="layer" style="position:absolute;inset:0;pointer-events:none"></div><div id="grid" aria-label="Alice Walker"><video></video>
+<div data-participant-id="p1" aria-label="Alice Walker's tile"><button aria-label="Pin Alice Walker to your main screen">pin</button><div class="zWGUib">Alice</div></div>
 <!-- Real tiles carry icon glyphs (pin, framing) marked notranslate, ahead of the name. -->
 <div data-participant-id="p2"><button><i class="google-symbols notranslate" aria-hidden="true">keep_outline</i></button><div class="zWGUib">Bob</div></div>
 <!-- ...and the name element can hold a second, hidden (sometimes truncated) copy of the name. -->
