@@ -6,6 +6,8 @@ function setBadge(tabId, msg) {
   let text = "", color = "#5f6368", title = MT.APP;
   if (msg.inMeeting && msg.paused) {
     text = "II"; title = MT.APP + ": paused";
+  } else if (msg.inMeeting && msg.stuck) {
+    text = "!"; color = "#e8710a"; title = MT.APP + ": captions are on but nothing is being recorded";
   } else if (msg.inMeeting && msg.captionsOn) {
     text = "REC"; color = "#d93025"; title = MT.APP + ": recording captions";
   } else if (msg.inMeeting) {

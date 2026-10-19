@@ -97,6 +97,13 @@ async function run() {
   t.textContent = "Great, thanks everyone.";
   window.done = true;
 }
+// Meet changes its page: caption lines keep coming, in a shape the extension can't read.
+window.garble = () => setInterval(() => {
+  const b = document.createElement("div");
+  b.className = "nMcdL";
+  b.textContent = "unreadable caption " + Date.now();
+  region.append(b);
+}, 300);
 // Leaving the call: Meet swaps the call UI for a "You left the meeting" screen.
 window.leave = () => {
   document.body.innerHTML = "<h1>You left the meeting</h1><button>Rejoin</button>";

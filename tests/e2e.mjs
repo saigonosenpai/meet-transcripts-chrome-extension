@@ -539,6 +539,34 @@ console.log("restored meetings:", titlesAfter.join(" | "));
   console.log("hide captions: tiles", Math.round(hidden.tile.width) + "×" + Math.round(hidden.tile.height), "(from 782×440), still recording; off again:", shown.strip, "px strip");
 }
 
+// --- captions on screen but nothing read (the page changed): said so, not "Recording" ---------------
+{
+  await sw.evaluate(() => chrome.storage.local.set({ stuckAfterMs: 3000 }));
+  const gp = await ctx.newPage();
+  await gp.goto("https://meet.google.com/gar-bled-cap");
+  await gp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  const statusOf = () => sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://meet.google.com/gar-bled-cap" });
+    return chrome.tabs.sendMessage(tab.id, { type: "getStatus" });
+  });
+  await gp.waitForTimeout(4500);
+  assert.equal((await statusOf()).stuck, false, "captions read: not stuck, even with nothing new on screen");
+  await gp.evaluate(() => garble());
+  let st;
+  for (let i = 0; i < 40 && !(st = await statusOf()).stuck; i++) await gp.waitForTimeout(250);
+  assert.ok(st.stuck && st.captionsOn, "unreadable captions for a while: stuck " + JSON.stringify(st));
+  const badgeText = () => sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://meet.google.com/gar-bled-cap" });
+    return chrome.action.getBadgeText({ tabId: tab.id });
+  });
+  let badge;
+  for (let i = 0; i < 20 && (badge = await badgeText()) !== "!"; i++) await gp.waitForTimeout(250); // updated on the next tick
+  assert.equal(badge, "!", "toolbar badge warns");
+  console.log("stuck: captions changing, nothing read -> pill, popup and badge say so");
+  await sw.evaluate(() => chrome.storage.local.remove("stuckAfterMs"));
+  await gp.close();
+}
+
 // --- Microsoft Teams ------------------------------------------------------------------------------
 await v.evaluate(() => MT.saveSettings({ hideCaptions: false }));
 await ctx.route("https://teams.microsoft.com/**", (r) => r.fulfill({ contentType: "text/html", body: fixture("mock-teams.html") }));

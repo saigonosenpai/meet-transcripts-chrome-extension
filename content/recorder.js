@@ -181,8 +181,22 @@
         st.entry.text = lead + rest.trim();
       }
     }
-    if (changed) scheduleSave();
+    if (changed) { scheduleSave(); capturedAt = Date.now(); }
   }
+
+  // --- captions on screen, nothing recorded -----------------------------------------------
+  //
+  // When Meet, Teams or Zoom change their page, the caption area is still found but its lines
+  // no longer read: captions keep changing on screen and nothing is captured. After STUCK_MS of
+  // that, the pill and the popup say so instead of "Recording", and offer the report.
+  const STUCK_MS = 60_000;
+  let stuckAfter = STUCK_MS; // tests shorten it (storage "stuckAfterMs")
+  let captionText = "", captionChangedAt = 0, capturedAt = 0;
+  function noteCaptions() {
+    const text = region ? region.textContent : "";
+    if (text !== captionText) { captionText = text; captionChangedAt = Date.now(); }
+  }
+  const stuck = () => !!region && !!session && !settings.paused && enabled() && captionChangedAt - capturedAt > stuckAfter;
 
   // --- gaps: stretches of a call with nothing recorded ----------------------------------
 
@@ -276,13 +290,15 @@
   function attach(el) {
     if (observer) observer.disconnect();
     region = el;
+    captionText = el ? el.textContent : "";
+    captionChangedAt = capturedAt = Date.now();
     applyHide(); // also undoes it for a caption area that's gone
     if (!el) return;
     let pending = false;
     observer = new MutationObserver(() => {
       if (pending) return;
       pending = true;
-      setTimeout(() => { pending = false; applyHide(); scan(); }, 250); // the page may re-render around the captions
+      setTimeout(() => { pending = false; applyHide(); scan(); noteCaptions(); }, 250); // the page may re-render around the captions
     });
     observer.observe(el, { childList: true, subtree: true, characterData: true });
     ensureSession().then(scan);
@@ -538,6 +554,7 @@
       inMeeting: !!code && enabled(),
       disabled: !!code && !enabled(),
       captionsOn: !!region,
+      stuck: stuck(),
       paused: settings.paused,
       count: session ? session.entries.length : 0,
       title: session ? MT.title(session.meta) : code ? P.eventTitle() || "Call" : "",
@@ -555,7 +572,7 @@
     const s = status();
     renderPill(s);
     if (!isTop && !showsCall()) return;
-    const sig = JSON.stringify([s.inMeeting, s.captionsOn, s.paused, s.disabled]);
+    const sig = JSON.stringify([s.inMeeting, s.captionsOn, s.paused, s.disabled, s.stuck]);
     if (sig === lastStatus) return;
     lastStatus = sig;
     try { chrome.runtime.sendMessage({ type: "status", ...s }); } catch { shutdown(); }
@@ -723,6 +740,9 @@
     if (!pill.host.isConnected) { document.documentElement.append(pill.host); placePill(pill.host); }
     const [cls, text, tip] = s.paused
       ? ["warn", "Paused", "Meeting Transcripts is paused. Click to resume recording."]
+      : s.stuck
+        ? ["warn", "Captions on · nothing recorded", "The captions on screen aren't being picked up: the page has probably changed. " +
+          "Click Meeting Transcripts in Chrome's toolbar and Copy a report."]
       : s.captionsOn
         ? ["rec", "Recording captions", "Meeting Transcripts is saving this call's captions. Click to pause."]
         : ["warn", "Captions off · not recording", "Click to turn on captions. " + P.captionHint];
@@ -785,6 +805,7 @@
   async function init() {
     settings = await MT.getSettings();
     selfName = (await chrome.storage.local.get(SELF_KEY))[SELF_KEY] || "";
+    stuckAfter = (await chrome.storage.local.get("stuckAfterMs")).stuckAfterMs || STUCK_MS;
     pillPos = (await chrome.storage.local.get(PILL_POS))[PILL_POS] || null;
     chrome.storage.onChanged.addListener((changes) => {
       if (changes[PILL_POS]) { pillPos = changes[PILL_POS].newValue || null; if (pill) placePill(pill.host); } // moved in another call tab
