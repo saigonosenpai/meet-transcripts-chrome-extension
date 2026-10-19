@@ -5,6 +5,30 @@ it's pushed to `main` with the matching `version` in `manifest.json`.
 
 ## 2.6.5
 
+From the CTO's test report:
+
+- **Fixed: notes added to a Word document in Word could be lost.** A call's document was
+  rewritten when the call or a speaker was renamed, when late captions arrived or on a
+  layout change in an update. Once a call is over, its document is now never rewritten,
+  renamed or deleted automatically; the library shows *Changed since* and **Update
+  .docx…**, which saves a new copy or replaces it, as you choose.
+- **Fixed: Find highlighted inside `&`, `<`, `>` and `"`** (searching "a" in "Tom & Jerry"
+  marked the a of `&amp;`).
+- **Deleted calls stay deleted** when the Meeting Transcripts folder is imported, even
+  though their documents are still there. Choosing a document with *Import › File…* brings
+  its call back.
+- **"Captions on · nothing recorded".** When captions keep showing for a minute and none
+  are picked up (the call page has changed), the pill, the popup and the toolbar badge (`!`)
+  say so, instead of "Recording", and point to *Copy a report*.
+- **Google Meet in any language:** captions are turned on and hidden whatever the language
+  of the page. Teams and Zoom in another language: the README says what to do.
+- **Copy a report holds no names:** labels that could carry a participant's name are left
+  out.
+- **A note about recording consent** in the popup, once, until acknowledged.
+- **Alt+Shift+P** pauses and resumes recording (change it at `chrome://extensions/shortcuts`).
+- Durations read "1 h" rather than "1 h 0 min".
+- Starting the background worker no longer reads the whole library just to check one flag.
+
 - **The transcripts library fits any window size.** In a narrower window, the toolbar
   (*Copy for AI*, *Export*, delete) wraps onto a second line instead of being cut off; on a
   phone-sized window the filters share one row, the search gets its own, and long meeting

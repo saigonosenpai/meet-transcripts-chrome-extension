@@ -158,3 +158,9 @@ button.stat:active { transform: scale(0.97); }
   :root { --secondary: var(--label); }
   .group, .hero, .btn, .stat { box-shadow: inset 0 0 0 1px var(--label); }
 }
+
+/* First-run note about recording consent, until it's acknowledged. */
+.consent { margin: 0 0 0.75rem; padding: 0.625rem 0.75rem; border-radius: 0.75rem; background: var(--fill); font-size: 0.75rem; line-height: 1.4; }
+.consent p { margin: 0 0 0.5rem; color: var(--secondary); }
+.consent b { color: var(--label); }
+.consent .btn { height: 1.75rem; }

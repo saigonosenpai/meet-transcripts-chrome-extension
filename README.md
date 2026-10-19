@@ -218,8 +218,11 @@ the call and the badge on the toolbar icon tell you what's happening:
 | `REC` (red) | ● Recording captions | Captions are on and being recorded |
 | `CC` | ● Captions off · not recording | You're in a call but captions are off. Click the pill to turn them on |
 | `II` | ● Paused | Recording is paused. Click the pill to resume |
+| `!` (orange) | ● Captions on · nothing recorded | Captions are showing but none have been picked up for a minute, usually because the call page changed. Open the popup and **Copy a report** |
 
-Click the icon to **pause/resume** or open the **live transcript**, which updates as people
+**Alt+Shift+P** pauses and resumes from the keyboard (change it at
+`chrome://extensions/shortcuts`). Drag the pill anywhere out of the way; double-click puts it
+back. Click the icon to **pause/resume** or open the **live transcript**, which updates as people
 talk. Below that, the popup shows your library at a glance: how many calls, how much time
 they add up to, and how much space the documents and backup take on disk.
 
@@ -229,6 +232,12 @@ The `.docx` is saved when you leave the call or close the tab, and also after 2 
 without new captions, so a crash loses little. If the call carries on, the same file is
 updated, so you get one file per call, never duplicates. Saving is silent: no download
 pop-up in the middle of your meeting.
+
+**Once the call is over, the document is yours.** Add notes to it in Word if you like: the
+extension never rewrites, renames or deletes it on its own after that (Chrome can't tell it
+whether you edited the file). If you later rename the call or a speaker, the library shows
+*Changed since* and **Update .docx…**, with a choice: **Save as a new copy** (keeps your
+document) or **Replace this document** (your edits in Word are lost).
 
 ### Settings (in the popup)
 
@@ -248,7 +257,8 @@ pop-up in the middle of your meeting.
 - Speaker turns with timestamps (hover a timestamp for the clock time) and each person's
   share of the talking.
 - **Click a speaker's name to rename them**, in this meeting or (with *Also in future
-  calls*) from now on. The `.docx` is updated to match.
+  calls*) from now on. For a call that's over, **Update .docx…** brings its document up to
+  date (see [When it saves](#when-it-saves)).
 - Lines like *"Captions were off 12:40–19:52 (7 min); nothing was recorded"* where the
   recording has a hole: captions off, recording paused, or you'd left and rejoined.
 - **Everything / Questions / Action items / Decisions** filters. These are picked out by
@@ -257,10 +267,12 @@ pop-up in the middle of your meeting.
 - **Copy for AI** copies the transcript with a prompt asking for a summary, key points,
   action items and open questions. Paste into any AI chat.
 - **Export** as Word, Markdown, plain text or JSON, or copy the transcript.
-- **Rename** a meeting by clicking its title. The `.docx` is renamed to match.
+- **Rename** a meeting by clicking its title. During the call the `.docx` follows; once
+  it's over, **Update .docx…** offers a new copy or replacing it.
 - **Show in folder** and **Save again** under the title.
 - **Delete** with the trash icon (there's an **Undo**). This removes it from the library,
-  not the `.docx`.
+  not the `.docx`. Importing the Meeting Transcripts folder later doesn't bring it back;
+  choosing its `.docx` with **Import › File…** does.
 
 ## Teams and Zoom
 
@@ -391,8 +403,12 @@ delete it once it's imported.
   Downloads folder and data stays in Chrome's local storage.
 - Turning captions on is only visible to you. Other people in the call aren't notified,
   and the in-call pill is only in your own browser window.
-- **Be considerate:** what others say in a meeting is theirs too. Let people know you keep
-  a transcript, and follow your organization's rules and local recording laws.
+- **Be considerate:** what others say in a meeting is theirs too. In some places everyone
+  in a conversation has to agree before it's recorded, and that can include a transcript.
+  Let people know you keep one, and follow your organization's rules and local recording
+  laws. The popup says this once, when you first use it.
+- **Copy a report** (for troubleshooting) holds the layout of the call page: sizes and
+  structure, never what was said or anyone's name.
 
 Permissions it asks for, and why:
 
@@ -422,14 +438,22 @@ It records whatever the call captions. Set the caption language in the call's se
 match the conversation. Accuracy is the platform's speech recognition; expect the usual
 errors with names and jargon. Renaming a speaker fixes the names.
 
+**What if Chrome or the call is in another language (not English)?**
+Recording works in any language. In **Google Meet** everything works too: captions are
+turned on and hidden automatically. In **Teams and Zoom**, turning captions on
+automatically and enlarging the video look for English button names, so with those in
+another language, turn captions on yourself (Teams: **More › Language and speech**; Zoom:
+**Captions**); recording then works as usual.
+
 **I left and rejoined the same meeting. Do I get two transcripts?**
 In Meet and Zoom, no: rejoining within 10 minutes continues the same transcript and file,
 with a "Not in the call" line for the time you were away. In Teams, a call you left
 properly is finished; joining again starts a new transcript.
 
-**Can I move or rename the .docx files?**
-Yes. Renaming in the library is best because it keeps everything in sync, but moving a
-file elsewhere is fine. A later save of that call writes a fresh copy back to the folder.
+**Can I move, rename or edit the .docx files?**
+Yes. Once a call is over its document is yours: the extension never rewrites, renames or
+deletes it on its own. If you move it, **Show in folder** can't find it any more; **Update
+.docx…** writes a fresh copy back to the folder.
 
 **Can I use it on two computers?**
 Yes: **Export** on one and **Import** on the other. See

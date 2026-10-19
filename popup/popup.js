@@ -174,6 +174,12 @@ async function init() {
     $(id).addEventListener("change", (e) => MT.saveSettings({ [id]: e.target.checked }));
   }
   $("myName").addEventListener("input", (e) => MT.saveSettings({ myName: e.target.value.trim() }));
+  // Recording consent: said once, until acknowledged.
+  if (!(await chrome.storage.local.get("consentNoted")).consentNoted) $("consent").hidden = false;
+  $("consentOk").addEventListener("click", async () => {
+    await chrome.storage.local.set({ consentNoted: true });
+    $("consent").hidden = true;
+  });
   // Its keyboard shortcut, as set in Chrome (none if the user removed it).
   chrome.commands.getAll().then((cmds) => {
     const key = (cmds.find((c) => c.name === "toggle-pause") || {}).shortcut;

@@ -63,6 +63,9 @@ const deduped = await sw.evaluate(() => [
 assert.deepEqual(deduped, ["Isuru Ilangarathne", "Chathuranga Balasooriya", "Ann",
   "McDonald", "Ann McAnn", "DeShawn De", "Mary-Jane O'Neil", "Lee Lee", "Ó Súilleabháin"]);
 
+assert.deepEqual(await sw.evaluate(() => [30, 60, 90, 120].map((m) => MT.duration({ startedAt: 0, endedAt: m * 60000 }))),
+  ["30 min", "1 h", "1 h 30 min", "2 h"], "durations");
+
 // --- a scheduled call ("Weekly sync") ---------------------------------------------------------
 // No name configured: "You" in captions must become the Google account name, "Sam Lee".
 const page = await ctx.newPage();
@@ -227,6 +230,14 @@ const p = await ctx.newPage();
 await p.setViewportSize({ width: 340, height: 600 });
 await p.goto(`chrome-extension://${id}/popup/popup.html`);
 await p.waitForTimeout(500);
+// The recording-consent note: shown until acknowledged, then never again.
+assert.ok(await p.isVisible("#consent"), "consent note on first use");
+await p.screenshot({ path: shots + "/popup-consent.png" });
+await p.click("#consentOk");
+assert.ok(!(await p.isVisible("#consent")));
+await p.reload();
+await p.waitForTimeout(400);
+assert.ok(!(await p.isVisible("#consent")), "not shown again");
 assert.ok((await p.textContent("#lastSaved")).includes("(Q4)"));
 // The library at a glance: one call, its document (and library.json) on disk.
 await p.waitForFunction(() => document.getElementById("size").textContent !== "–");
