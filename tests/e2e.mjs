@@ -132,6 +132,40 @@ assert.deepEqual(after["f:" + meta.id], before["f:" + meta.id], "saved-file reco
 assert.equal(await v.textContent("#title"), "Weekly sync (Q4)");
 console.log("delete + undo: restored");
 
+// --- the library fits any window width: nothing spills sideways, pop-ups open on screen ------------
+{
+  const size = v.viewportSize() || { width: 1280, height: 800 };
+  const fit = () => v.evaluate(() => {
+    const out = [];
+    if (document.documentElement.scrollWidth > innerWidth + 1) out.push(`page ${document.documentElement.scrollWidth}px wide`);
+    for (const e of document.querySelectorAll(".toolbar button, .toolbar input, .sidebar-foot .btn, #title, .spk, #libSearch")) {
+      const r = e.getBoundingClientRect();
+      if (e.closest(".popover")) continue; // menus: checked when open
+      if (r.width && (r.left < -1 || r.right > innerWidth + 1)) out.push(`${e.id || e.className || e.tagName} at ${Math.round(r.left)}–${Math.round(r.right)}`);
+    }
+    // Toolbar controls never on top of each other.
+    const bs = [...document.querySelectorAll(".toolbar > *:not(.spacer):not(.thumb)")].map((e) => [e, e.getBoundingClientRect()]).filter(([, r]) => r.width);
+    for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+      const a = bs[i][1], b = bs[j][1];
+      if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2) out.push(`overlap ${bs[i][0].className || bs[i][0].id} × ${bs[j][0].className || bs[j][0].id}`);
+    }
+    return out;
+  });
+  const onScreen = (sel) => v.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return r.left >= -1 && r.right <= innerWidth + 1; }, sel);
+  for (const w of [1280, 1024, 900, 760, 600, 414, 375, 320]) {
+    await v.setViewportSize({ width: w, height: 800 });
+    await v.waitForTimeout(250);
+    assert.deepEqual(await fit(), [], `library fits at ${w}px`);
+    await v.click("#exportBtn");
+    await v.waitForTimeout(300);
+    assert.ok(await onScreen("#exportMenu"), `Export menu on screen at ${w}px`);
+    await v.keyboard.press("Escape");
+    await v.waitForTimeout(250);
+  }
+  await v.setViewportSize(size);
+  console.log("library: fits and menus open on screen from 1280px down to 320px");
+}
+
 const p = await ctx.newPage();
 await p.setViewportSize({ width: 340, height: 600 });
 await p.goto(`chrome-extension://${id}/popup/popup.html`);

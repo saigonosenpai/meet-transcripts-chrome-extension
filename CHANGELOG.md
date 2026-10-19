@@ -3,6 +3,14 @@
 Each version here becomes a release on GitHub, with the extension zip attached, as soon as
 it's pushed to `main` with the matching `version` in `manifest.json`.
 
+## 2.6.5
+
+- **The transcripts library fits any window size.** In a narrower window, the toolbar
+  (*Copy for AI*, *Export*, delete) wraps onto a second line instead of being cut off; on a
+  phone-sized window the filters share one row, the search gets its own, and long meeting
+  titles no longer push the page wider than the window. The *Export* and *Import* menus and
+  the rename box always open fully on screen.
+
 ## 2.6.4
 
 - **Fixed: hiding captions didn't enlarge the video when cameras were on.** Meet draws each

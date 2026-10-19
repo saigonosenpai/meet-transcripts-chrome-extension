@@ -252,7 +252,18 @@ function placeThumb() {
   thumb.style.transform = `translateX(${on.offsetLeft}px)`;
 }
 
+// A pop-up opens next to its button; in a narrow window, where the buttons wrap, that can be
+// past the window's edge: nudge it back in (measured from layout, not from its opening animation).
+function keepInWindow(pop) {
+  pop.style.translate = "";
+  if (!pop.offsetParent) return;
+  const left = pop.offsetParent.getBoundingClientRect().left + pop.offsetLeft, right = left + pop.offsetWidth, m = 8;
+  const dx = left < m ? m - left : right > innerWidth - m ? Math.max(m - left, innerWidth - m - right) : 0;
+  if (dx) pop.style.translate = `${Math.round(dx)}px 0`;
+}
+
 function setMenu(open) {
+  if (open) keepInWindow($("exportMenu"));
   $("exportMenu").classList.toggle("open", open);
   $("exportBtn").setAttribute("aria-expanded", String(open));
 }
@@ -312,6 +323,7 @@ function bindActions() {
     $("renameFrom").textContent = chip.dataset.name;
     $("renameInput").value = chip.dataset.name;
     $("renameFuture").checked = false;
+    keepInWindow(box);
     box.classList.add("open");
     $("renameInput").focus();
     $("renameInput").select();
@@ -365,6 +377,7 @@ function bindActions() {
   // Import: the Meeting Transcripts folder (library.json and every .docx in its day folders),
   // or files: a library exported on another computer, a library.json, .docx.
   const importMenu = (open) => {
+    if (open) keepInWindow($("importMenu"));
     $("importMenu").classList.toggle("open", open);
     $("importBtn").setAttribute("aria-expanded", String(open));
   };
