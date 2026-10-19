@@ -20,8 +20,11 @@ const MT_PLATFORM = (() => {
 
   const callId = () => (location.pathname.match(/^\/([a-z]{3,4}-[a-z]{4}-[a-z]{3,4})\b/) || [])[1] || null;
 
-  const captionButtons = () =>
-    [...document.querySelectorAll("button[aria-label]")].filter((b) => /caption/i.test(b.getAttribute("aria-label")));
+  // Found by its label in English, and in any language by Meet's own id for the captions
+  // button (jsname="RrG0hf"), which doesn't depend on the page's language.
+  const CAPTION_BTN_SEL = 'button[jsname="RrG0hf"]';
+  const captionButtons = () => [...new Set([...document.querySelectorAll(CAPTION_BTN_SEL),
+    ...[...document.querySelectorAll("button[aria-label]")].filter((b) => /caption/i.test(b.getAttribute("aria-label")))])];
 
   function blocks(region) {
     const found = region.querySelectorAll(BLOCK_SEL);
@@ -73,7 +76,7 @@ const MT_PLATFORM = (() => {
 
   function enableCaptions() {
     const btn = captionButtons().find((b) =>
-      /turn on|show/i.test(b.getAttribute("aria-label")) || b.getAttribute("aria-pressed") === "false");
+      /turn on|show/i.test(b.getAttribute("aria-label") || "") || b.getAttribute("aria-pressed") === "false");
     if (btn) btn.click();
   }
 
@@ -83,6 +86,7 @@ const MT_PLATFORM = (() => {
     // The caption button only exists inside a call; once it is gone the user has left.
     inCall: () => !!first(REGION_SEL) || captionButtons().length > 0,
     captionRegion: () => first(REGION_SEL),
+    controlSel: CAPTION_BTN_SEL, // in the control bar, whatever the language
     blocks,
     parseBlock,
     eventTitle,

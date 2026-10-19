@@ -293,6 +293,12 @@ chrome.runtime.onInstalled.addListener(async ({ reason, previousVersion }) => {
   chrome.tabs.create({ url: chrome.runtime.getURL("viewer/viewer.html#welcome") });
 });
 
+// The keyboard shortcut (Alt+Shift+P by default; chrome://extensions/shortcuts to change it):
+// pause or resume, with the hands on the keyboard in the call.
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "toggle-pause") await MT.saveSettings({ paused: !(await MT.getSettings()).paused });
+});
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name.startsWith("save:")) saveDoc(alarm.name.slice(5)).catch(() => {});
 });

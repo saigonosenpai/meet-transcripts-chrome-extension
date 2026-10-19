@@ -174,6 +174,11 @@ async function init() {
     $(id).addEventListener("change", (e) => MT.saveSettings({ [id]: e.target.checked }));
   }
   $("myName").addEventListener("input", (e) => MT.saveSettings({ myName: e.target.value.trim() }));
+  // Its keyboard shortcut, as set in Chrome (none if the user removed it).
+  chrome.commands.getAll().then((cmds) => {
+    const key = (cmds.find((c) => c.name === "toggle-pause") || {}).shortcut;
+    $("pause").title = key ? `Pause or resume recording (${key})` : "Pause or resume recording";
+  });
   $("pause").addEventListener("click", async () => {
     await MT.saveSettings({ paused: !(await MT.getSettings()).paused });
     setTimeout(refresh, 100);

@@ -1,5 +1,5 @@
 <!doctype html>
-<html><head><title>Meet</title>
+<html><head><meta charset="utf-8"><title>Meet</title>
 <style>
   /* Like Meet: the bottom bar holds the caption strip and the controls, and the video stage
      is positioned absolutely, its bottom offset set inline by script (room for the strip, the
@@ -32,10 +32,17 @@
 <div id="bottom">
   <!-- The caption strip, above the controls; empty until captions are on. -->
   <div id="capbar" hidden><div></div></div>
-  <footer id="controls"><button aria-label="Turn on captions (c)" aria-pressed="false" id="cc">CC</button>
+  <footer id="controls"><button aria-label="Turn on captions (c)" aria-pressed="false" id="cc" jsname="RrG0hf">CC</button>
     <button aria-label="Turn off microphone">Mic</button><button aria-label="Leave call">Leave</button></footer>
 </div>
 <script>
+// ?hl=es: Meet in Spanish, every label translated.
+const es = new URLSearchParams(location.search).get("hl") === "es";
+if (es) {
+  document.getElementById("cc").setAttribute("aria-label", "Activar subtítulos (c)");
+  document.querySelector('[aria-label="Turn off microphone"]').setAttribute("aria-label", "Desactivar micrófono");
+  document.querySelector('[aria-label="Leave call"]').setAttribute("aria-label", "Salir de la llamada");
+}
 // Calendar meetings show their title in the tab; spontaneous calls show only the code.
 const scheduled = location.pathname === "/abc-defg-hij";
 document.title = scheduled ? "Meet - Weekly sync" : "Meet - " + location.pathname.slice(1);
@@ -57,12 +64,17 @@ window.someoneJoined = () => layoutStage(true);
 setInterval(() => { document.getElementById("stage").className = "stg"; }, 300);
 document.getElementById("cc").onclick = (e) => {
   e.target.setAttribute("aria-pressed", "true");
-  e.target.setAttribute("aria-label", "Turn off captions (c)");
+  e.target.setAttribute("aria-label", es ? "Desactivar subtítulos (c)" : "Turn off captions (c)");
   region = document.createElement("div");
   region.setAttribute("role", "region");
-  region.setAttribute("aria-label", "Captions");
+  region.setAttribute("aria-label", es ? "Subtítulos" : "Captions");
   document.getElementById("capbar").hidden = false;
-  document.querySelector("#capbar > div").append(region);
+  if (es) { // Meet's own id on the captions' container, whatever the language
+    const wrap = document.createElement("div");
+    wrap.setAttribute("jsname", "dsyhDe");
+    wrap.append(region);
+    document.querySelector("#capbar > div").append(wrap);
+  } else document.querySelector("#capbar > div").append(region);
   captionsOn = true;
   layoutStage();
   run();

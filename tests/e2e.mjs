@@ -234,6 +234,10 @@ const stats = await p.evaluate(() => ["calls", "recorded", "size", "statsDetail"
 console.log("popup stats:", stats.join(" | "));
 const manifestVersion = JSON.parse(fs.readFileSync(path.join(ext, "manifest.json"))).version;
 assert.equal(await p.textContent("#version"), "v" + manifestVersion, "popup shows the installed version");
+// The pause shortcut is registered (headless Chrome doesn't assign keys; the title shows one when set).
+assert.deepEqual(await p.evaluate(() => chrome.commands.getAll().then((c) => c.filter((x) => x.name === "toggle-pause").map((x) => x.description))),
+  ["Pause or resume recording"]);
+assert.match(await p.getAttribute("#pause", "title"), /^Pause or resume recording( \(.+\))?$/);
 assert.equal(stats[0], "1");
 assert.match(stats[2], /^\d+(\.\d)? (KB|MB)$/);
 assert.match(stats[3], /^Meet 1 · 1 Word document/);
@@ -567,6 +571,29 @@ console.log("restored meetings:", titlesAfter.join(" | "));
   console.log("stuck: captions changing, nothing read -> pill, popup and badge say so");
   await sw.evaluate(() => chrome.storage.local.remove("stuckAfterMs"));
   await gp.close();
+}
+
+// --- Meet in another language: captions still turned on, recorded and hidden ----------------------
+{
+  const lp = await ctx.newPage();
+  await lp.setViewportSize({ width: 1000, height: 700 });
+  await lp.goto("https://meet.google.com/esp-anol-mtg?hl=es");
+  await lp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  await lp.waitForTimeout(1500);
+  assert.equal(await lp.getAttribute("#cc", "aria-label"), "Desactivar subtítulos (c)", "captions turned on from the Spanish page");
+  const recorded = () => sw.evaluate(async () => {
+    const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === "esp-anol-mtg");
+    return m ? ((await chrome.storage.local.get("t:" + m.id))["t:" + m.id] || []).length : 0;
+  });
+  let lines = 0;
+  for (let i = 0; i < 40 && (lines = await recorded()) < 3; i++) await lp.waitForTimeout(250); // saved a moment later
+  assert.ok(lines >= 3, "recorded: " + lines);
+  const l = await lp.evaluate(() => ({ strip: document.getElementById("capbar").getBoundingClientRect().height,
+    tile: document.getElementById("grid").getBoundingClientRect().height }));
+  assert.equal((await sw.evaluate(() => MT.getSettings())).hideCaptions, true);
+  assert.ok(l.strip === 0 && l.tile > 500, "captions hidden and the video enlarged, with Spanish labels: " + JSON.stringify(l));
+  console.log("Meet in Spanish: captions turned on, recorded (" + lines + " lines), hidden, video enlarged");
+  await lp.close();
 }
 
 // --- Microsoft Teams ------------------------------------------------------------------------------

@@ -319,7 +319,8 @@
   let collapsed = [];
   // The call's own controls: a container holding any of these is part of the control bar.
   const CONTROLS = ['microphone', 'camera', 'leave', 'hang up', 'end call', 'turn on captions', 'turn off captions',
-    'turn on live captions', 'turn off live captions'].map((l) => `button[aria-label*="${l}" i]`).join(", ");
+    'turn on live captions', 'turn off live captions'].map((l) => `button[aria-label*="${l}" i]`)
+    .concat(P.controlSel || []).join(", "); // labels are English; the platform's own ids aren't
 
   function collapsible(el) {
     if (!el || el === document.body || el === document.documentElement) return false;
