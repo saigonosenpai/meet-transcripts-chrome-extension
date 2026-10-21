@@ -460,6 +460,33 @@ console.log("restored meetings:", titlesAfter.join(" | "));
   await hp.waitForTimeout(500);
   console.log("hide captions: tiles fit, nothing spills past the stage at", sizes.map((s) => s.join("×")).join(", "), "· while resizing · with a side panel open");
 
+  // Meet's picture-in-picture window: captions hidden there too, the video taking the room;
+  // shown again with the switch.
+  {
+    await hp.click("#pipBtn");
+    await hp.waitForFunction(() => documentPictureInPicture.window, null, { timeout: 5000 });
+    const pipState = () => hp.evaluate(() => { const d = documentPictureInPicture.window.document;
+      return { video: d.getElementById("pvid").getBoundingClientRect().height, room: documentPictureInPicture.window.innerHeight - 60, captionsLeft: d.getElementById("pcap").getBoundingClientRect().left,
+        strip: d.getElementById("pcapwrap").getBoundingClientRect().height }; });
+    let ps;
+    for (let i = 0; i < 20 && (ps = await pipState()).strip > 0; i++) await hp.waitForTimeout(250);
+    assert.ok(ps.strip === 0 && ps.captionsLeft < -5000 && ps.video >= ps.room - 1, "mini window: captions hidden, the video takes the room " + JSON.stringify(ps));
+    await sw.evaluate(() => MT.saveSettings({ hideCaptions: false }));
+    for (let i = 0; i < 20 && (ps = await pipState()).strip === 0; i++) await hp.waitForTimeout(250);
+    assert.ok(ps.strip >= 160 && ps.captionsLeft >= 0 && ps.video < 200, "mini window: captions back " + JSON.stringify(ps));
+    await sw.evaluate(() => MT.saveSettings({ hideCaptions: true }));
+    for (let i = 0; i < 20 && (ps = await pipState()).strip > 0; i++) await hp.waitForTimeout(250);
+    assert.equal(ps.strip, 0, "hidden again");
+    const rep = await sw.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: "https://meet.google.com/hid-ecap-tns" });
+      return (await chrome.tabs.sendMessage(tab.id, { type: "diagnose" })).pipLayout;
+    });
+    assert.match(rep, /^window \d+×\d+, captions found\n.*COLLAPSED/s, "report describes the mini window");
+    await hp.evaluate(() => documentPictureInPicture.window.close());
+    await hp.waitForTimeout(800);
+    console.log("picture-in-picture: captions hidden there too (video " + Math.round(ps.video) + "px, all the room above the controls), shown with the switch");
+  }
+
   // The in-call indicator can be dragged anywhere and stays where it was left.
   {
     const pillRect = () => hp.evaluate(() => (({ left, top, right, bottom, width, height }) => ({ left, top, right, bottom, width, height }))(

@@ -33,7 +33,8 @@
   <!-- The caption strip, above the controls; empty until captions are on. -->
   <div id="capbar" hidden><div></div></div>
   <footer id="controls"><button aria-label="Turn on captions (c)" aria-pressed="false" id="cc" jsname="RrG0hf">CC</button>
-    <button aria-label="Turn off microphone">Mic</button><button aria-label="Leave call">Leave</button></footer>
+    <button aria-label="Turn off microphone">Mic</button><button aria-label="Leave call">Leave</button>
+    <button id="pipBtn" onclick="openPip()">Pop out</button></footer>
 </div>
 <script>
 // ?hl=es: Meet in Spanish, every label translated.
@@ -116,6 +117,16 @@ window.garble = () => setInterval(() => {
   b.textContent = "unreadable caption " + Date.now();
   region.append(b);
 }, 300);
+// Meet's picture-in-picture window: the video, the captions under it, the controls.
+window.openPip = async () => {
+  const w = await documentPictureInPicture.requestWindow({ width: 300, height: 420 });
+  w.document.body.style.cssText = "margin:0;height:100vh;display:flex;flex-direction:column;background:#222";
+  w.document.body.innerHTML = '<div id="pvid" style="flex:1;min-height:0"><div data-participant-id="p2" style="height:100%"><video style="width:100%;height:100%"></video></div></div>' +
+    '<div id="pcapwrap" style="flex:none;padding:8px 0"><div role="region" aria-label="Captions" id="pcap" style="height:160px">' +
+    '<div class="nMcdL"><div class="adE6rb"><div class="KcIKyf"><span class="NWpY1d">Alice</span></div></div><div class="ygicle">Seen in the mini window.</div></div></div></div>' +
+    '<div id="pctrl" style="flex:none;height:60px"><button aria-label="Leave call">Leave</button></div>';
+  return w;
+};
 // Leaving the call: Meet swaps the call UI for a "You left the meeting" screen.
 window.leave = () => {
   document.body.innerHTML = "<h1>You left the meeting</h1><button>Rejoin</button>";

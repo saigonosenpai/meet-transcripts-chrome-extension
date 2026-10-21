@@ -85,7 +85,8 @@ const MT_PLATFORM = (() => {
     callId,
     // The caption button only exists inside a call; once it is gone the user has left.
     inCall: () => !!first(REGION_SEL) || captionButtons().length > 0,
-    captionRegion: () => first(REGION_SEL),
+    captionRegion: (root = document) => first(REGION_SEL, root),
+    pip: true, // Meet's picture-in-picture window shows captions too (see the recorder)
     controlSel: CAPTION_BTN_SEL, // in the control bar, whatever the language
     blocks,
     parseBlock,

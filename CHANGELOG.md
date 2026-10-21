@@ -30,6 +30,8 @@ From the CTO's test report:
   With the chat open Meet shows one tile filling the stage, and only the small self-view was
   measured, then enlarged ×6. A stage already filled is left alone now, and enlarging is
   limited to ×2.5.
+- **Meet's picture-in-picture window** (the small pop-out): captions are hidden there too
+  while *Hide captions* is on, and the video takes the room. *Copy a report* describes it.
 - Durations read "1 h" rather than "1 h 0 min".
 - Starting the background worker no longer reads the whole library just to check one flag.
 

@@ -322,15 +322,72 @@
     'turn on live captions', 'turn off live captions'].map((l) => `button[aria-label*="${l}" i]`)
     .concat(P.controlSel || []).join(", "); // labels are English; the platform's own ids aren't
 
-  function collapsible(el) {
-    if (!el || el === document.body || el === document.documentElement) return false;
+  // `win`: the window the element is in (the call page, or Meet's picture-in-picture window,
+  // where captions can take up to half of a small window).
+  function collapsible(el, win = window) {
+    const doc = win.document;
+    if (!el || el === doc.body || el === doc.documentElement) return false;
     if (el.querySelector("video, [data-participant-id]")) return false;
     if (el.querySelector(CONTROLS)) return false;
     const r = el.getBoundingClientRect();
-    return r.height <= window.innerHeight / 3 || el.classList.contains("mt-collapsed");
+    return r.height <= win.innerHeight * (win === window ? 1 / 3 : 1 / 2) || el.classList.contains("mt-collapsed");
+  }
+
+  // --- Meet's picture-in-picture window ---------------------------------------------------
+  //
+  // Meet can pop the call out into a small always-on-top window (Document Picture-in-Picture):
+  // a page of its own, reachable from this one, that shows the captions too. While hiding is
+  // on they're hidden there the same way: lifted out, and the containers they leave empty
+  // collapsed, so the video gets the room. If the call page itself stops showing them, they're
+  // read from there.
+  let pip = null; // { win, observer, collapsed: [] }
+
+  function watchPip() {
+    const dpip = P.pip && window.documentPictureInPicture;
+    if (!dpip) return;
+    const open = (win) => {
+      if (!win || (pip && pip.win === win)) return;
+      let pending = false;
+      const observer = new MutationObserver(() => {
+        if (pending) return;
+        pending = true;
+        setTimeout(() => { pending = false; applyPipHide(); }, 250);
+      });
+      observer.observe(win.document, { childList: true, subtree: true });
+      pip = { win, observer, collapsed: [] };
+      win.addEventListener("pagehide", () => { observer.disconnect(); if (pip && pip.win === win) pip = null; });
+      applyPipHide();
+    };
+    dpip.addEventListener("enter", (e) => open(e.window));
+    if (dpip.window) open(dpip.window);
+  }
+
+  const pipRegion = () => (pip && !pip.win.closed ? P.captionRegion(pip.win.document) : null);
+
+  function applyPipHide() {
+    if (!pip || pip.win.closed) return;
+    const doc = pip.win.document, reg = pipRegion();
+    const hide = !!reg && settings.hideCaptions && enabled();
+    if (hide && !doc.getElementById("mt-hide-css")) {
+      const style = doc.createElement("style");
+      style.id = "mt-hide-css";
+      style.textContent = HIDE_CSS;
+      (doc.head || doc.documentElement).append(style);
+    }
+    doc.querySelectorAll(".mt-hidden-captions").forEach((el) => { if (el !== reg || !hide) el.classList.remove("mt-hidden-captions"); });
+    if (hide && !reg.classList.contains("mt-hidden-captions")) {
+      reg.style.setProperty("--mt-width", Math.max(200, reg.getBoundingClientRect().width) + "px");
+      reg.classList.add("mt-hidden-captions");
+    }
+    const chain = [];
+    if (hide) for (let el = reg.parentElement, i = 0; i < 6 && collapsible(el, pip.win); el = el.parentElement, i++) chain.push(el);
+    for (const el of pip.collapsed) if (!chain.includes(el)) el.classList.remove("mt-collapsed");
+    for (const el of chain) el.classList.add("mt-collapsed");
+    pip.collapsed = chain;
   }
 
   function applyHide() {
+    if (region && region.ownerDocument !== document) return applyPipHide(); // read from the picture-in-picture window
     const hide = !!region && settings.hideCaptions && enabled();
     if (hide && !document.getElementById("mt-hide-css")) {
       const style = document.createElement("style");
@@ -352,6 +409,7 @@
     collapsed = chain;
     const refit = fitStage(hide);
     if (changed || refit) window.dispatchEvent(new Event("resize"));
+    applyPipHide();
   }
 
   // Meet positions its video stage and the tiles in it itself (inline offsets and sizes), with
@@ -605,7 +663,7 @@
       attach(null);
     }
     if (code && enabled()) {
-      const el = P.captionRegion();
+      const el = P.captionRegion() || (P.pip ? pipRegion() : null);
       if (el !== region) attach(el);
       if (!region && P.inCall()) tryEnableCaptions();
       detectSelfName();
@@ -795,6 +853,20 @@
     return out;
   }
 
+  // Meet's picture-in-picture window, when it's open: its size and what holds the captions.
+  function pipReport() {
+    if (!pip || pip.win.closed) return null;
+    const reg = pipRegion(), win = pip.win;
+    const lines = [`window ${win.innerWidth}×${win.innerHeight}, captions ${reg ? "found" : "not found"}`];
+    for (let el = reg, i = 0; el && el !== win.document.documentElement && i < 8; el = el.parentElement, i++) {
+      const r = el.getBoundingClientRect(), cs = win.getComputedStyle(el);
+      lines.push(`${"  ".repeat(i)}${describe(el)} ${Math.round(r.width)}×${Math.round(r.height)} at ${Math.round(r.top)} ${cs.display}/${cs.position}` +
+        `${el.classList.contains("mt-collapsed") ? " COLLAPSED" : ""}${el.querySelector("video") ? " +video" : ""} children ${el.children.length}`);
+    }
+    if (!reg) for (const c of [...win.document.body.children].slice(0, 8)) lines.push("  " + outline(c, 2).trimEnd());
+    return lines.join("\n");
+  }
+
   function diagnose() {
     const candidates = [...document.querySelectorAll("[id], [class], [data-tid], [aria-label]")].filter((el) =>
       /caption|subtitle|transcri/i.test([el.id, typeof el.className === "string" ? el.className : "",
@@ -809,6 +881,7 @@
       linesRecorded: session ? session.entries.length : 0,
       captionArea: region ? outline(region, 3) : null,
       captionLayout: layoutReport(),
+      pipLayout: pipReport(),
       candidates: candidates.map((el) => outline(el, 2)),
     };
   }
@@ -847,6 +920,7 @@
       return msg.type === "flush" || msg.type === "enableCaptions";
     });
     window.addEventListener("pagehide", save);
+    watchPip();
     // A new window size (resized, or moved to another screen) moves the controls: refit the
     // stage. Our own resize signal changes nothing here, so it doesn't loop.
     // Meet re-renders its layout without touching the captions: re-check, hidden or shown.
