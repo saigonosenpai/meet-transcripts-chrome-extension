@@ -429,6 +429,32 @@ console.log("restored meetings:", titlesAfter.join(" | "));
       .map(([x, y]) => document.elementFromPoint(x, y)?.id));
     assert.deepEqual(hits, ["panel", "panel", "panel"], "the side panel stays visible and clickable");
   }
+  // Meet with the chat open and one other person: their tile fills the whole stage, and your
+  // self-view floats small in a corner. Nothing to enlarge: certainly not the self-view, ×6.
+  {
+    const spot = await hp.evaluate(() => {
+      const stage = document.getElementById("stage"), grid = document.getElementById("grid");
+      Object.assign(grid.style, { left: "0px", top: "0px", width: stage.offsetWidth + "px", height: stage.offsetHeight + "px" });
+      const pip = document.createElement("div");
+      pip.id = "pip";
+      pip.setAttribute("data-participant-id", "self");
+      pip.style.cssText = "position:absolute;right:8px;bottom:8px;width:235px;height:132px;background:#555";
+      stage.append(pip);
+      return { w: stage.offsetWidth, h: stage.offsetHeight };
+    });
+    await hp.waitForTimeout(1500);
+    const r = await hp.evaluate(() => ({ transform: getComputedStyle(document.getElementById("stage")).transform,
+      pip: document.getElementById("pip").getBoundingClientRect().width }));
+    assert.equal(r.transform, "none", "a tile filling the stage: left as it is " + JSON.stringify(r));
+    assert.ok(Math.abs(r.pip - 235) < 1, "the self-view keeps its size");
+    // Without the full tile (a small self-view is all that's found): still never blown up.
+    await hp.evaluate(() => { document.getElementById("grid").style.display = "none"; });
+    await hp.waitForTimeout(1500);
+    const pipOnly = await hp.evaluate(() => document.getElementById("pip").getBoundingClientRect().width);
+    assert.ok(pipOnly < 235 * 1.05, "a self-view alone isn't the layout: not enlarged, " + pipOnly);
+    await hp.evaluate(() => { document.getElementById("pip").remove(); document.getElementById("grid").style.display = ""; });
+    console.log("chat open, one tile filling the stage: left as Meet drew it (stage", spot.w + "×" + spot.h + ")");
+  }
   await hp.evaluate(() => { document.getElementById("panel").remove(); document.getElementById("stage").style.right = ""; layoutStage(); });
   await hp.setViewportSize({ width: 1000, height: 700 });
   await hp.waitForTimeout(500);

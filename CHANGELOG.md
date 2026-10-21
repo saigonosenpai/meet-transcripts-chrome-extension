@@ -26,6 +26,10 @@ From the CTO's test report:
   out.
 - **A note about recording consent** in the popup, once, until acknowledged.
 - **Alt+Shift+P** pauses and resumes recording (change it at `chrome://extensions/shortcuts`).
+- **Fixed: opening the chat in Meet could blow the video up** (a name filling the screen).
+  With the chat open Meet shows one tile filling the stage, and only the small self-view was
+  measured, then enlarged ×6. A stage already filled is left alone now, and enlarging is
+  limited to ×2.5.
 - Durations read "1 h" rather than "1 h 0 min".
 - Starting the background worker no longer reads the whole library just to check one flag.
 

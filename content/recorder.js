@@ -433,6 +433,8 @@
     return 0;
   }
 
+  const MAX_SCALE = 2.5; // Meet's own caption room is a fifth of the stage or so: ×1.2–1.4 is usual
+
   function fitStage(hide) {
     let css = document.getElementById("mt-stage-css");
     const before = css ? css.textContent : "";
@@ -451,18 +453,22 @@
     else {
       const st = stageEl.getBoundingClientRect();
       const margin = Math.min(parseFloat(getComputedStyle(stageEl).left) || 0, 24);
-      // The tiles: every video and participant tile on the stage, as drawn. Not layers covering
-      // the whole stage (Meet's stage holds some), which would make the tiles look full already,
-      // and not icons or avatars inside a tile.
-      let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+      // The tiles: every video and participant tile on the stage, as drawn (not icons or avatars
+      // inside a tile). One that covers the whole stage (a single speaker, as Meet shows with the
+      // chat open) means the stage is full already: nothing to enlarge.
+      let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity, full = false;
       for (const c of stageEl.querySelectorAll("video, [data-participant-id]")) {
         const cr = visibleRect(c, stageEl);
         if (cr.width < 80 || cr.height < 45) continue;
-        if (cr.width >= st.width * 0.98 && cr.height >= st.height * 0.98) continue;
+        if (cr.width >= st.width * 0.98 && cr.height >= st.height * 0.98) full = true;
         l = Math.min(l, cr.left); t = Math.min(t, cr.top); r = Math.max(r, cr.right); b = Math.max(b, cr.bottom);
       }
       const availH = edge - margin - st.top, cw = r - l, ch = b - t;
-      const fit = cw > 0 && ch > 0 ? Math.min(availH / ch, st.width / cw) : 0;
+      // Only a plausible layout is enlarged: tiles found over a fair share of the stage (not just
+      // a small self-view left over), and never more than MAX_SCALE.
+      const plausible = cw > 0 && ch > 0 && cw * ch >= 0.1 * st.width * st.height;
+      let fit = plausible ? Math.min(availH / ch, st.width / cw) : 0;
+      if (hide && (full || fit > MAX_SCALE)) fit = 0;
       // Hidden, only ever enlarged; shown, only ever shrunk (when Meet's tiles run under the panel).
       // Hidden and already as wide as the stage (a row of cameras), they can't grow without
       // stretching the video: they're centered in the space instead of left at its top.
@@ -481,7 +487,10 @@
         rule = `${sel} { transform: translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) scale(${scale.toFixed(4)}) !important;` +
           ` transform-origin: 0 0 !important; clip-path: inset(${inset}) !important; }`;
         fitInfo = `${describe(stageEl)} tiles ${Math.round(cw)}×${Math.round(ch)} ${scale > 1.02 || scale < 0.98 ? "scaled ×" + scale.toFixed(2) : "centered"} via ${sel}`;
-      } else fitInfo = `${describe(stageEl)} tiles ${Math.round(cw)}×${Math.round(ch)} ${hide ? "already fill" : "fit in"} ${Math.round(st.width)}×${Math.round(availH)}`;
+      } else fitInfo = `${describe(stageEl)} tiles ${Math.round(cw)}×${Math.round(ch)} ` +
+        (full ? "(one fills the stage) left as they are" : !plausible ? "too small to be the layout, left as they are"
+          : hide && fit === 0 ? `would need more than ×${MAX_SCALE}, left as they are`
+          : `${hide ? "already fill" : "fit in"} ${Math.round(st.width)}×${Math.round(availH)}`);
     }
     if (!css && !rule) return false;
     if (!css) {
