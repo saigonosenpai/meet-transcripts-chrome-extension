@@ -637,6 +637,29 @@ console.log("restored meetings:", titlesAfter.join(" | "));
   await gp.close();
 }
 
+// --- Meet addresses: the call's code wherever it is; none in the address -> known by the address ---
+assert.deepEqual(await sw.evaluate(() => ["/abc-defg-hij", "/meet/abc-defg-hij", "/abc-defg-hij/", "/meet/abc-defg-hij/details",
+  "/_meet/abc-defg-hij", "/u/4/abc-defg-hij", "/ABC-DEFG-HIJ", "/abcd-efgh-ijkl", "/", "/landing", "/lookup/teamroom",
+  "/xabcd-defg-hij", "/abc-defg-hijkl", ""].map(MT.meetCode)),
+  ["abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abcd-efgh-ijkl",
+   null, null, null, null, null, null], "Meet codes found in every address shape, and nowhere else");
+for (const [url, code] of [["https://meet.google.com/lookup/teamroom", "lookup/teamroom"], ["https://meet.google.com/_meet/new-shap-ecd?hs=1", "new-shap-ecd"]]) {
+  const xp = await ctx.newPage();
+  await xp.goto(url);
+  await xp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  let got = null;
+  for (let i = 0; i < 40 && !got; i++) {
+    got = await sw.evaluate(async (code) => {
+      const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === code);
+      return m && ((await chrome.storage.local.get("t:" + m.id))["t:" + m.id] || []).length >= 3 ? MT.link(m) : null;
+    }, code);
+    if (!got) await xp.waitForTimeout(250);
+  }
+  assert.equal(got, "https://meet.google.com/" + code, `recorded at ${url}, with its link`);
+  await xp.close();
+}
+console.log("Meet addresses: codes found in 8 shapes; a call with no code in its address recorded too");
+
 // --- Meet's newer address, meet.google.com/meet/<code>: recorded the same ---------------------------
 {
   const np = await ctx.newPage();

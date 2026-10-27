@@ -18,9 +18,11 @@ const MT_PLATFORM = (() => {
   // "Google Account: Jane Doe (jane@example.com)".
   const ACCOUNT_SEL = '[aria-label^="Google Account:"]';
 
-  // The call's code: meet.google.com/abc-defg-hij, or meet.google.com/meet/abc-defg-hij (a newer
-  // address Meet opens some calls at).
-  const callId = () => (location.pathname.match(/^\/(?:meet\/)?([a-z]{3,4}-[a-z]{4}-[a-z]{3,4})(?=\/|$)/) || [])[1] || null;
+  // The call: its code, wherever Meet puts it in the address (MT.meetCode). An address with no
+  // code (a format Meet hasn't used before, a named room) is still a call when the call's
+  // controls are on screen; it's known by its address then (also its link).
+  const callId = () => MT.meetCode(location.pathname) ||
+    (location.pathname.length > 1 && captionButtons().length ? location.pathname.replace(/^\/+|\/+$/g, "") : null);
 
   // Found by its label in English, and in any language by Meet's own id for the captions
   // button (jsname="RrG0hf"), which doesn't depend on the page's language.

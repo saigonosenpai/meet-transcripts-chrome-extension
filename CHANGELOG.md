@@ -7,7 +7,9 @@ it's pushed to `main` with the matching `version` in `manifest.json`.
 
 - **Fixed: calls at Meet's newer address weren't recorded.** Meet now opens some calls at
   `meet.google.com/meet/<code>` instead of `meet.google.com/<code>`; the extension didn't
-  recognise those as calls.
+  recognise those as calls. Now the call's code is found wherever it is in the address, and
+  a call whose address has no code at all is still recorded when Meet's call controls are on
+  screen, so a future change of address doesn't stop recording.
 
 From the CTO's test report:
 
