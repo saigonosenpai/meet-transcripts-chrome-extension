@@ -5,6 +5,10 @@ it's pushed to `main` with the matching `version` in `manifest.json`.
 
 ## 2.6.5
 
+- **Fixed: calls at Meet's newer address weren't recorded.** Meet now opens some calls at
+  `meet.google.com/meet/<code>` instead of `meet.google.com/<code>`; the extension didn't
+  recognise those as calls.
+
 From the CTO's test report:
 
 - **Fixed: notes added to a Word document in Word could be lost.** A call's document was

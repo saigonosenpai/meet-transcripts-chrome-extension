@@ -18,7 +18,9 @@ const MT_PLATFORM = (() => {
   // "Google Account: Jane Doe (jane@example.com)".
   const ACCOUNT_SEL = '[aria-label^="Google Account:"]';
 
-  const callId = () => (location.pathname.match(/^\/([a-z]{3,4}-[a-z]{4}-[a-z]{3,4})\b/) || [])[1] || null;
+  // The call's code: meet.google.com/abc-defg-hij, or meet.google.com/meet/abc-defg-hij (a newer
+  // address Meet opens some calls at).
+  const callId = () => (location.pathname.match(/^\/(?:meet\/)?([a-z]{3,4}-[a-z]{4}-[a-z]{3,4})(?=\/|$)/) || [])[1] || null;
 
   // Found by its label in English, and in any language by Meet's own id for the captions
   // button (jsname="RrG0hf"), which doesn't depend on the page's language.

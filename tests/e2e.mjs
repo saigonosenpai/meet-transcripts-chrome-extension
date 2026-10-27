@@ -637,6 +637,24 @@ console.log("restored meetings:", titlesAfter.join(" | "));
   await gp.close();
 }
 
+// --- Meet's newer address, meet.google.com/meet/<code>: recorded the same ---------------------------
+{
+  const np = await ctx.newPage();
+  await np.goto("https://meet.google.com/meet/new-path-cal?authuser=4");
+  await np.waitForFunction(() => window.done, null, { timeout: 30000 });
+  let found = null;
+  for (let i = 0; i < 40 && !found; i++) {
+    found = await sw.evaluate(async () => {
+      const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === "new-path-cal");
+      return m ? ((await chrome.storage.local.get("t:" + m.id))["t:" + m.id] || []).length : null;
+    });
+    if (!found) await np.waitForTimeout(250);
+  }
+  assert.ok(found >= 3, "a call at meet.google.com/meet/<code> is recorded: " + found);
+  console.log("meet.google.com/meet/<code>: recorded (" + found + " lines)");
+  await np.close();
+}
+
 // --- Meet in another language: captions still turned on, recorded and hidden ----------------------
 {
   const lp = await ctx.newPage();
