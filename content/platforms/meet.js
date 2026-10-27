@@ -18,10 +18,17 @@ const MT_PLATFORM = (() => {
   // "Google Account: Jane Doe (jane@example.com)".
   const ACCOUNT_SEL = '[aria-label^="Google Account:"]';
 
-  const callId = () => (location.pathname.match(/^\/([a-z]{3,4}-[a-z]{4}-[a-z]{3,4})\b/) || [])[1] || null;
+  // The call: its code, wherever Meet puts it in the address (MT.meetCode). An address with no
+  // code (a format Meet hasn't used before, a named room) is still a call when the call's
+  // controls are on screen; it's known by its address then (also its link).
+  const callId = () => MT.meetCode(location.pathname) ||
+    (location.pathname.length > 1 && captionButtons().length ? location.pathname.replace(/^\/+|\/+$/g, "") : null);
 
-  const captionButtons = () =>
-    [...document.querySelectorAll("button[aria-label]")].filter((b) => /caption/i.test(b.getAttribute("aria-label")));
+  // Found by its label in English, and in any language by Meet's own id for the captions
+  // button (jsname="RrG0hf"), which doesn't depend on the page's language.
+  const CAPTION_BTN_SEL = 'button[jsname="RrG0hf"]';
+  const captionButtons = () => [...new Set([...document.querySelectorAll(CAPTION_BTN_SEL),
+    ...[...document.querySelectorAll("button[aria-label]")].filter((b) => /caption/i.test(b.getAttribute("aria-label")))])];
 
   function blocks(region) {
     const found = region.querySelectorAll(BLOCK_SEL);
@@ -73,7 +80,7 @@ const MT_PLATFORM = (() => {
 
   function enableCaptions() {
     const btn = captionButtons().find((b) =>
-      /turn on|show/i.test(b.getAttribute("aria-label")) || b.getAttribute("aria-pressed") === "false");
+      /turn on|show/i.test(b.getAttribute("aria-label") || "") || b.getAttribute("aria-pressed") === "false");
     if (btn) btn.click();
   }
 
@@ -82,7 +89,9 @@ const MT_PLATFORM = (() => {
     callId,
     // The caption button only exists inside a call; once it is gone the user has left.
     inCall: () => !!first(REGION_SEL) || captionButtons().length > 0,
-    captionRegion: () => first(REGION_SEL),
+    captionRegion: (root = document) => first(REGION_SEL, root),
+    pip: true, // Meet's picture-in-picture window shows captions too (see the recorder)
+    controlSel: CAPTION_BTN_SEL, // in the control bar, whatever the language
     blocks,
     parseBlock,
     eventTitle,

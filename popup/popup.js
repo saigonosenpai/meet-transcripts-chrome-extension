@@ -29,7 +29,7 @@ function render() {
   // A report can be copied any time in a call; it's offered as the fix when nothing is recorded.
   $("diagnose").hidden = !current || !current.inMeeting;
   if (current && current.inMeeting && Date.now() - copiedAt > 4000) {
-    $("diagnose").textContent = current.paused || (current.captionsOn && current.count > 0)
+    $("diagnose").textContent = current.paused || (current.captionsOn && current.count > 0 && !current.stuck)
       ? "Copy a report for troubleshooting" : "Captions not being picked up? Copy a report";
   }
   if (!current) {
@@ -57,6 +57,12 @@ function render() {
     setTone("warn");
     dot.classList.add("warn");
     state.textContent = "Paused";
+  } else if (current.stuck) {
+    setTone("warn");
+    dot.classList.add("warn");
+    state.textContent = "Captions on · nothing recorded";
+    detail.textContent = "The captions on screen aren't being picked up, probably because the call page changed. Copy a report below and send it in.";
+    return;
   } else if (current.captionsOn) {
     setTone("rec");
     dot.classList.add("rec");
@@ -168,6 +174,17 @@ async function init() {
     $(id).addEventListener("change", (e) => MT.saveSettings({ [id]: e.target.checked }));
   }
   $("myName").addEventListener("input", (e) => MT.saveSettings({ myName: e.target.value.trim() }));
+  // Recording consent: said once, until acknowledged.
+  if (!(await chrome.storage.local.get("consentNoted")).consentNoted) $("consent").hidden = false;
+  $("consentOk").addEventListener("click", async () => {
+    await chrome.storage.local.set({ consentNoted: true });
+    $("consent").hidden = true;
+  });
+  // Its keyboard shortcut, as set in Chrome (none if the user removed it).
+  chrome.commands.getAll().then((cmds) => {
+    const key = (cmds.find((c) => c.name === "toggle-pause") || {}).shortcut;
+    $("pause").title = key ? `Pause or resume recording (${key})` : "Pause or resume recording";
+  });
   $("pause").addEventListener("click", async () => {
     await MT.saveSettings({ paused: !(await MT.getSettings()).paused });
     setTimeout(refresh, 100);

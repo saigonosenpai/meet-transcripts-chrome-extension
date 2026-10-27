@@ -181,8 +181,22 @@
         st.entry.text = lead + rest.trim();
       }
     }
-    if (changed) scheduleSave();
+    if (changed) { scheduleSave(); capturedAt = Date.now(); }
   }
+
+  // --- captions on screen, nothing recorded -----------------------------------------------
+  //
+  // When Meet, Teams or Zoom change their page, the caption area is still found but its lines
+  // no longer read: captions keep changing on screen and nothing is captured. After STUCK_MS of
+  // that, the pill and the popup say so instead of "Recording", and offer the report.
+  const STUCK_MS = 60_000;
+  let stuckAfter = STUCK_MS; // tests shorten it (storage "stuckAfterMs")
+  let captionText = "", captionChangedAt = 0, capturedAt = 0;
+  function noteCaptions() {
+    const text = region ? region.textContent : "";
+    if (text !== captionText) { captionText = text; captionChangedAt = Date.now(); }
+  }
+  const stuck = () => !!region && !!session && !settings.paused && enabled() && captionChangedAt - capturedAt > stuckAfter;
 
   // --- gaps: stretches of a call with nothing recorded ----------------------------------
 
@@ -276,13 +290,15 @@
   function attach(el) {
     if (observer) observer.disconnect();
     region = el;
+    captionText = el ? el.textContent : "";
+    captionChangedAt = capturedAt = Date.now();
     applyHide(); // also undoes it for a caption area that's gone
     if (!el) return;
     let pending = false;
     observer = new MutationObserver(() => {
       if (pending) return;
       pending = true;
-      setTimeout(() => { pending = false; applyHide(); scan(); }, 250); // the page may re-render around the captions
+      setTimeout(() => { pending = false; applyHide(); scan(); noteCaptions(); }, 250); // the page may re-render around the captions
     });
     observer.observe(el, { childList: true, subtree: true, characterData: true });
     ensureSession().then(scan);
@@ -303,17 +319,75 @@
   let collapsed = [];
   // The call's own controls: a container holding any of these is part of the control bar.
   const CONTROLS = ['microphone', 'camera', 'leave', 'hang up', 'end call', 'turn on captions', 'turn off captions',
-    'turn on live captions', 'turn off live captions'].map((l) => `button[aria-label*="${l}" i]`).join(", ");
+    'turn on live captions', 'turn off live captions'].map((l) => `button[aria-label*="${l}" i]`)
+    .concat(P.controlSel || []).join(", "); // labels are English; the platform's own ids aren't
 
-  function collapsible(el) {
-    if (!el || el === document.body || el === document.documentElement) return false;
+  // `win`: the window the element is in (the call page, or Meet's picture-in-picture window,
+  // where captions can take up to half of a small window).
+  function collapsible(el, win = window) {
+    const doc = win.document;
+    if (!el || el === doc.body || el === doc.documentElement) return false;
     if (el.querySelector("video, [data-participant-id]")) return false;
     if (el.querySelector(CONTROLS)) return false;
     const r = el.getBoundingClientRect();
-    return r.height <= window.innerHeight / 3 || el.classList.contains("mt-collapsed");
+    return r.height <= win.innerHeight * (win === window ? 1 / 3 : 1 / 2) || el.classList.contains("mt-collapsed");
+  }
+
+  // --- Meet's picture-in-picture window ---------------------------------------------------
+  //
+  // Meet can pop the call out into a small always-on-top window (Document Picture-in-Picture):
+  // a page of its own, reachable from this one, that shows the captions too. While hiding is
+  // on they're hidden there the same way: lifted out, and the containers they leave empty
+  // collapsed, so the video gets the room. If the call page itself stops showing them, they're
+  // read from there.
+  let pip = null; // { win, observer, collapsed: [] }
+
+  function watchPip() {
+    const dpip = P.pip && window.documentPictureInPicture;
+    if (!dpip) return;
+    const open = (win) => {
+      if (!win || (pip && pip.win === win)) return;
+      let pending = false;
+      const observer = new MutationObserver(() => {
+        if (pending) return;
+        pending = true;
+        setTimeout(() => { pending = false; applyPipHide(); }, 250);
+      });
+      observer.observe(win.document, { childList: true, subtree: true });
+      pip = { win, observer, collapsed: [] };
+      win.addEventListener("pagehide", () => { observer.disconnect(); if (pip && pip.win === win) pip = null; });
+      applyPipHide();
+    };
+    dpip.addEventListener("enter", (e) => open(e.window));
+    if (dpip.window) open(dpip.window);
+  }
+
+  const pipRegion = () => (pip && !pip.win.closed ? P.captionRegion(pip.win.document) : null);
+
+  function applyPipHide() {
+    if (!pip || pip.win.closed) return;
+    const doc = pip.win.document, reg = pipRegion();
+    const hide = !!reg && settings.hideCaptions && enabled();
+    if (hide && !doc.getElementById("mt-hide-css")) {
+      const style = doc.createElement("style");
+      style.id = "mt-hide-css";
+      style.textContent = HIDE_CSS;
+      (doc.head || doc.documentElement).append(style);
+    }
+    doc.querySelectorAll(".mt-hidden-captions").forEach((el) => { if (el !== reg || !hide) el.classList.remove("mt-hidden-captions"); });
+    if (hide && !reg.classList.contains("mt-hidden-captions")) {
+      reg.style.setProperty("--mt-width", Math.max(200, reg.getBoundingClientRect().width) + "px");
+      reg.classList.add("mt-hidden-captions");
+    }
+    const chain = [];
+    if (hide) for (let el = reg.parentElement, i = 0; i < 6 && collapsible(el, pip.win); el = el.parentElement, i++) chain.push(el);
+    for (const el of pip.collapsed) if (!chain.includes(el)) el.classList.remove("mt-collapsed");
+    for (const el of chain) el.classList.add("mt-collapsed");
+    pip.collapsed = chain;
   }
 
   function applyHide() {
+    if (region && region.ownerDocument !== document) return applyPipHide(); // read from the picture-in-picture window
     const hide = !!region && settings.hideCaptions && enabled();
     if (hide && !document.getElementById("mt-hide-css")) {
       const style = document.createElement("style");
@@ -335,6 +409,7 @@
     collapsed = chain;
     const refit = fitStage(hide);
     if (changed || refit) window.dispatchEvent(new Event("resize"));
+    applyPipHide();
   }
 
   // Meet positions its video stage and the tiles in it itself (inline offsets and sizes), with
@@ -416,6 +491,8 @@
     return 0;
   }
 
+  const MAX_SCALE = 2.5; // Meet's own caption room is a fifth of the stage or so: ×1.2–1.4 is usual
+
   function fitStage(hide) {
     let css = document.getElementById("mt-stage-css");
     const before = css ? css.textContent : "";
@@ -434,18 +511,22 @@
     else {
       const st = stageEl.getBoundingClientRect();
       const margin = Math.min(parseFloat(getComputedStyle(stageEl).left) || 0, 24);
-      // The tiles: every video and participant tile on the stage, as drawn. Not layers covering
-      // the whole stage (Meet's stage holds some), which would make the tiles look full already,
-      // and not icons or avatars inside a tile.
-      let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+      // The tiles: every video and participant tile on the stage, as drawn (not icons or avatars
+      // inside a tile). One that covers the whole stage (a single speaker, as Meet shows with the
+      // chat open) means the stage is full already: nothing to enlarge.
+      let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity, full = false;
       for (const c of stageEl.querySelectorAll("video, [data-participant-id]")) {
         const cr = visibleRect(c, stageEl);
         if (cr.width < 80 || cr.height < 45) continue;
-        if (cr.width >= st.width * 0.98 && cr.height >= st.height * 0.98) continue;
+        if (cr.width >= st.width * 0.98 && cr.height >= st.height * 0.98) full = true;
         l = Math.min(l, cr.left); t = Math.min(t, cr.top); r = Math.max(r, cr.right); b = Math.max(b, cr.bottom);
       }
       const availH = edge - margin - st.top, cw = r - l, ch = b - t;
-      const fit = cw > 0 && ch > 0 ? Math.min(availH / ch, st.width / cw) : 0;
+      // Only a plausible layout is enlarged: tiles found over a fair share of the stage (not just
+      // a small self-view left over), and never more than MAX_SCALE.
+      const plausible = cw > 0 && ch > 0 && cw * ch >= 0.1 * st.width * st.height;
+      let fit = plausible ? Math.min(availH / ch, st.width / cw) : 0;
+      if (hide && (full || fit > MAX_SCALE)) fit = 0;
       // Hidden, only ever enlarged; shown, only ever shrunk (when Meet's tiles run under the panel).
       // Hidden and already as wide as the stage (a row of cameras), they can't grow without
       // stretching the video: they're centered in the space instead of left at its top.
@@ -464,7 +545,10 @@
         rule = `${sel} { transform: translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) scale(${scale.toFixed(4)}) !important;` +
           ` transform-origin: 0 0 !important; clip-path: inset(${inset}) !important; }`;
         fitInfo = `${describe(stageEl)} tiles ${Math.round(cw)}×${Math.round(ch)} ${scale > 1.02 || scale < 0.98 ? "scaled ×" + scale.toFixed(2) : "centered"} via ${sel}`;
-      } else fitInfo = `${describe(stageEl)} tiles ${Math.round(cw)}×${Math.round(ch)} ${hide ? "already fill" : "fit in"} ${Math.round(st.width)}×${Math.round(availH)}`;
+      } else fitInfo = `${describe(stageEl)} tiles ${Math.round(cw)}×${Math.round(ch)} ` +
+        (full ? "(one fills the stage) left as they are" : !plausible ? "too small to be the layout, left as they are"
+          : hide && fit === 0 ? `would need more than ×${MAX_SCALE}, left as they are`
+          : `${hide ? "already fill" : "fit in"} ${Math.round(st.width)}×${Math.round(availH)}`);
     }
     if (!css && !rule) return false;
     if (!css) {
@@ -538,6 +622,7 @@
       inMeeting: !!code && enabled(),
       disabled: !!code && !enabled(),
       captionsOn: !!region,
+      stuck: stuck(),
       paused: settings.paused,
       count: session ? session.entries.length : 0,
       title: session ? MT.title(session.meta) : code ? P.eventTitle() || "Call" : "",
@@ -555,7 +640,7 @@
     const s = status();
     renderPill(s);
     if (!isTop && !showsCall()) return;
-    const sig = JSON.stringify([s.inMeeting, s.captionsOn, s.paused, s.disabled]);
+    const sig = JSON.stringify([s.inMeeting, s.captionsOn, s.paused, s.disabled, s.stuck]);
     if (sig === lastStatus) return;
     lastStatus = sig;
     try { chrome.runtime.sendMessage({ type: "status", ...s }); } catch { shutdown(); }
@@ -578,7 +663,7 @@
       attach(null);
     }
     if (code && enabled()) {
-      const el = P.captionRegion();
+      const el = P.captionRegion() || (P.pip ? pipRegion() : null);
       if (el !== region) attach(el);
       if (!region && P.inCall()) tryEnableCaptions();
       detectSelfName();
@@ -723,6 +808,9 @@
     if (!pill.host.isConnected) { document.documentElement.append(pill.host); placePill(pill.host); }
     const [cls, text, tip] = s.paused
       ? ["warn", "Paused", "Meeting Transcripts is paused. Click to resume recording."]
+      : s.stuck
+        ? ["warn", "Captions on · nothing recorded", "The captions on screen aren't being picked up: the page has probably changed. " +
+          "Click Meeting Transcripts in Chrome's toolbar and Copy a report."]
       : s.captionsOn
         ? ["rec", "Recording captions", "Meeting Transcripts is saving this call's captions. Click to pause."]
         : ["warn", "Captions off · not recording", "Click to turn on captions. " + P.captionHint];
@@ -741,10 +829,17 @@
   // popup copies this report: the structure of the page around the captions, never the
   // caption text itself.
 
+  // Labels are shown only when every word is a generic control word: tiles and buttons on a call
+  // page carry participants' names ("Pin Arthy Moorthy"), and a report must hold no names.
+  const SAFE_WORDS = new Set(("captions caption turn on off open close jump to the most recent settings type language and " +
+    "speech microphone mic camera video leave call end hang up more options live show hide chat people participants present " +
+    "presenting now raise lower hand reactions closed transcript transcription subtitles c d e menu toolbar controls meeting " +
+    "details activities share screen apps panel") .split(" "));
+  const safeLabel = (label) => (label.toLowerCase().match(/[a-z]+/g) || []).every((w) => SAFE_WORDS.has(w));
   function describe(el) {
     const attrs = ["data-tid", "role", "aria-live", "jsname"].map((a) => el.getAttribute(a) && `[${a}=${el.getAttribute(a)}]`).filter(Boolean);
     const aria = el.getAttribute("aria-label");
-    if (aria) attrs.push(`[aria-label=${aria.slice(0, 40)}${aria.length > 40 ? "…" : ""}]`);
+    if (aria) attrs.push(safeLabel(aria) ? `[aria-label=${aria.slice(0, 40)}${aria.length > 40 ? "…" : ""}]` : "[aria-label=…]");
     // The page's first classes, plus ours (mt-…) wherever they are, to show what we changed.
     const all = typeof el.className === "string" ? el.className.trim().split(/\s+/).filter(Boolean) : [];
     const shown = [...all.filter((c) => !c.startsWith("mt-")).slice(0, 4), ...all.filter((c) => c.startsWith("mt-"))];
@@ -756,6 +851,20 @@
     let out = indent + describe(el) + "\n";
     if (depth > 0) for (const c of [...el.children].slice(0, 6)) out += outline(c, depth - 1, indent + "  ");
     return out;
+  }
+
+  // Meet's picture-in-picture window, when it's open: its size and what holds the captions.
+  function pipReport() {
+    if (!pip || pip.win.closed) return null;
+    const reg = pipRegion(), win = pip.win;
+    const lines = [`window ${win.innerWidth}×${win.innerHeight}, captions ${reg ? "found" : "not found"}`];
+    for (let el = reg, i = 0; el && el !== win.document.documentElement && i < 8; el = el.parentElement, i++) {
+      const r = el.getBoundingClientRect(), cs = win.getComputedStyle(el);
+      lines.push(`${"  ".repeat(i)}${describe(el)} ${Math.round(r.width)}×${Math.round(r.height)} at ${Math.round(r.top)} ${cs.display}/${cs.position}` +
+        `${el.classList.contains("mt-collapsed") ? " COLLAPSED" : ""}${el.querySelector("video") ? " +video" : ""} children ${el.children.length}`);
+    }
+    if (!reg) for (const c of [...win.document.body.children].slice(0, 8)) lines.push("  " + outline(c, 2).trimEnd());
+    return lines.join("\n");
   }
 
   function diagnose() {
@@ -772,6 +881,7 @@
       linesRecorded: session ? session.entries.length : 0,
       captionArea: region ? outline(region, 3) : null,
       captionLayout: layoutReport(),
+      pipLayout: pipReport(),
       candidates: candidates.map((el) => outline(el, 2)),
     };
   }
@@ -785,6 +895,7 @@
   async function init() {
     settings = await MT.getSettings();
     selfName = (await chrome.storage.local.get(SELF_KEY))[SELF_KEY] || "";
+    stuckAfter = (await chrome.storage.local.get("stuckAfterMs")).stuckAfterMs || STUCK_MS;
     pillPos = (await chrome.storage.local.get(PILL_POS))[PILL_POS] || null;
     chrome.storage.onChanged.addListener((changes) => {
       if (changes[PILL_POS]) { pillPos = changes[PILL_POS].newValue || null; if (pill) placePill(pill.host); } // moved in another call tab
@@ -809,6 +920,7 @@
       return msg.type === "flush" || msg.type === "enableCaptions";
     });
     window.addEventListener("pagehide", save);
+    watchPip();
     // A new window size (resized, or moved to another screen) moves the controls: refit the
     // stage. Our own resize signal changes nothing here, so it doesn't loop.
     // Meet re-renders its layout without touching the captions: re-check, hidden or shown.

@@ -63,6 +63,9 @@ const deduped = await sw.evaluate(() => [
 assert.deepEqual(deduped, ["Isuru Ilangarathne", "Chathuranga Balasooriya", "Ann",
   "McDonald", "Ann McAnn", "DeShawn De", "Mary-Jane O'Neil", "Lee Lee", "Ó Súilleabháin"]);
 
+assert.deepEqual(await sw.evaluate(() => [30, 60, 90, 120].map((m) => MT.duration({ startedAt: 0, endedAt: m * 60000 }))),
+  ["30 min", "1 h", "1 h 30 min", "2 h"], "durations");
+
 // --- a scheduled call ("Weekly sync") ---------------------------------------------------------
 // No name configured: "You" in captions must become the Google account name, "Sam Lee".
 const page = await ctx.newPage();
@@ -92,7 +95,12 @@ assert.equal(path.dirname(file.filename), dayDir, "grouped in a folder per day")
 assert.ok(fs.existsSync(file.filename));
 fs.copyFileSync(file.filename, shots + "/saved.docx");
 
-// --- viewer: rename, save again -> one file, new name -----------------------------------------
+// --- the user's Word document is theirs once the call is over --------------------------------
+// Edited in Word, then the call renamed: the edits must survive. The viewer offers an update
+// instead (a new copy, or replace), never a silent rewrite.
+assert.equal((await fileState()).final, true, "saved as the call ended: final");
+fs.appendFileSync(file.filename, Buffer.from("notes typed in Word"));
+const edited = fs.readFileSync(file.filename);
 const v = await ctx.newPage();
 await v.setViewportSize({ width: 1200, height: 900 });
 await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(meta.id));
@@ -101,19 +109,71 @@ await v.click("#title");
 await v.keyboard.press("End");
 await v.keyboard.type(" (Q4)");
 await v.keyboard.press("Enter");
-await v.waitForTimeout(300);
+await v.waitForFunction(() => document.querySelector("#file").textContent.includes("Changed since"), null, { timeout: 10000 });
+await v.waitForTimeout(1000);
+assert.ok(fs.existsSync(file.filename) && fs.readFileSync(file.filename).equals(edited), "edited document left exactly as it was");
+assert.equal((await fileState()).filename, file.filename, "still the same document");
+assert.equal(await v.textContent("#saveNow"), "Update .docx…");
+// Update › Save as a new copy: a new document with the new name; the edited one stays.
 await v.click("#saveNow");
+await v.waitForSelector("#saveMenu.open");
+await v.click('#saveMenu [data-mode="copy"]');
 await v.waitForFunction(() => document.querySelector("#file").textContent.includes("(Q4)"));
 const renamed = await fileState();
 console.log("renamed:", path.basename(renamed.filename));
 assert.ok(path.basename(renamed.filename).includes("Weekly sync (Q4) - Alice"));
-assert.ok(fs.existsSync(renamed.filename), "new file exists");
-assert.ok(!fs.existsSync(file.filename), "old file removed");
-// Renaming re-saves on its own and Save was clicked too: let Chrome finish writing before
-// listing the folder (an unfinished download shows as "Unconfirmed ….crdownload").
-const listing = () => fs.readdirSync(path.dirname(renamed.filename));
+assert.ok(fs.existsSync(renamed.filename), "new copy exists");
+assert.ok(fs.readFileSync(file.filename).equals(edited), "the edited document is kept, untouched");
+assert.ok(!renamed.outdated && renamed.final, "the copy is up to date, and itself final");
+// Let Chrome finish writing before listing the folder (an unfinished download shows as
+// "Unconfirmed ….crdownload").
+const listing = () => fs.readdirSync(path.dirname(renamed.filename)).sort();
 for (let i = 0; i < 40 && listing().some((f) => f.endsWith(".crdownload")); i++) await v.waitForTimeout(250);
-assert.deepEqual(listing(), [path.basename(renamed.filename)]);
+assert.deepEqual(listing(), [path.basename(file.filename), path.basename(renamed.filename)].sort());
+// Save again › Replace: rewrites the call's own (current) document, nothing else.
+await v.click("#saveNow");
+await v.waitForSelector("#saveMenu.open");
+await v.click('#saveMenu [data-mode="replace"]');
+await v.waitForFunction((t) => document.querySelector("#saveNow") && !document.querySelector("#saveNow").disabled, renamed.savedAt);
+await v.waitForTimeout(800);
+const replaced = await fileState();
+assert.equal(replaced.filename, renamed.filename, "replaced in place");
+assert.ok(replaced.savedAt > renamed.savedAt, "rewritten");
+assert.ok(fs.readFileSync(file.filename).equals(edited), "the edited document still untouched");
+console.log("Word edits: kept after a rename; Update offers a new copy or replace");
+// The edited original is the user's now; out of the way for the rest of the test.
+fs.unlinkSync(file.filename);
+
+// --- find in a transcript: text with &, <, > and " highlights correctly -----------------------------
+{
+  const T0 = Date.now() - 600_000;
+  await v.evaluate((T0) => MT.saveMeeting({ id: "hl-1", code: "hig-hlig-hte", eventTitle: "Highlight test", startedAt: T0, endedAt: T0 + 60_000 },
+    [{ speaker: "Ann", text: 'Tom & Jerry said "a <b>bold</b> plan" > the old one.', ts: T0 }]), T0);
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html#hl-1`);
+  await v.waitForSelector(".turn p");
+  const shown = async (q) => {
+    await v.fill("#search", q);
+    await v.waitForTimeout(200);
+    return v.evaluate(() => { const p = document.querySelector(".turn p");
+      return { text: p.textContent, marks: [...p.querySelectorAll("mark")].map((m) => m.textContent), bold: !!p.querySelector("b") }; });
+  };
+  const said = 'Tom & Jerry said "a <b>bold</b> plan" > the old one.';
+  let r = await shown("a");
+  assert.equal(r.text, said, "text shown as written");
+  assert.deepEqual(r.marks, ["a", "a", "a"], "only the real a's marked (none inside &amp;)");
+  assert.ok(!r.bold, "no markup from the text");
+  r = await shown("&");
+  assert.deepEqual([r.text, r.marks], [said, ["&"]]);
+  r = await shown("<b>");
+  assert.deepEqual([r.text, r.marks], [said, ["<b>"]]);
+  r = await shown('"');
+  assert.deepEqual([r.text, r.marks], [said, ['"', '"']]);
+  await v.fill("#search", "");
+  await v.evaluate(() => MT.deleteMeeting("hl-1"));
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(meta.id));
+  await v.waitForSelector(".turn p");
+  console.log("find: &, <, > and \" highlight as written");
+}
 await v.screenshot({ path: shots + "/viewer.png" });
 
 // --- delete is immediate and undoable (no blocking confirm dialog) ---------------------------------
@@ -132,10 +192,52 @@ assert.deepEqual(after["f:" + meta.id], before["f:" + meta.id], "saved-file reco
 assert.equal(await v.textContent("#title"), "Weekly sync (Q4)");
 console.log("delete + undo: restored");
 
+// --- the library fits any window width: nothing spills sideways, pop-ups open on screen ------------
+{
+  const size = v.viewportSize() || { width: 1280, height: 800 };
+  const fit = () => v.evaluate(() => {
+    const out = [];
+    if (document.documentElement.scrollWidth > innerWidth + 1) out.push(`page ${document.documentElement.scrollWidth}px wide`);
+    for (const e of document.querySelectorAll(".toolbar button, .toolbar input, .sidebar-foot .btn, #title, .spk, #libSearch")) {
+      const r = e.getBoundingClientRect();
+      if (e.closest(".popover")) continue; // menus: checked when open
+      if (r.width && (r.left < -1 || r.right > innerWidth + 1)) out.push(`${e.id || e.className || e.tagName} at ${Math.round(r.left)}–${Math.round(r.right)}`);
+    }
+    // Toolbar controls never on top of each other.
+    const bs = [...document.querySelectorAll(".toolbar > *:not(.spacer):not(.thumb)")].map((e) => [e, e.getBoundingClientRect()]).filter(([, r]) => r.width);
+    for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {
+      const a = bs[i][1], b = bs[j][1];
+      if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2) out.push(`overlap ${bs[i][0].className || bs[i][0].id} × ${bs[j][0].className || bs[j][0].id}`);
+    }
+    return out;
+  });
+  const onScreen = (sel) => v.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return r.left >= -1 && r.right <= innerWidth + 1; }, sel);
+  for (const w of [1280, 1024, 900, 760, 600, 414, 375, 320]) {
+    await v.setViewportSize({ width: w, height: 800 });
+    await v.waitForTimeout(250);
+    assert.deepEqual(await fit(), [], `library fits at ${w}px`);
+    await v.click("#exportBtn");
+    await v.waitForTimeout(300);
+    assert.ok(await onScreen("#exportMenu"), `Export menu on screen at ${w}px`);
+    await v.keyboard.press("Escape");
+    await v.waitForTimeout(250);
+  }
+  await v.setViewportSize(size);
+  console.log("library: fits and menus open on screen from 1280px down to 320px");
+}
+
 const p = await ctx.newPage();
 await p.setViewportSize({ width: 340, height: 600 });
 await p.goto(`chrome-extension://${id}/popup/popup.html`);
 await p.waitForTimeout(500);
+// The recording-consent note: shown until acknowledged, then never again.
+assert.ok(await p.isVisible("#consent"), "consent note on first use");
+await p.screenshot({ path: shots + "/popup-consent.png" });
+await p.click("#consentOk");
+assert.ok(!(await p.isVisible("#consent")));
+await p.reload();
+await p.waitForTimeout(400);
+assert.ok(!(await p.isVisible("#consent")), "not shown again");
 assert.ok((await p.textContent("#lastSaved")).includes("(Q4)"));
 // The library at a glance: one call, its document (and library.json) on disk.
 await p.waitForFunction(() => document.getElementById("size").textContent !== "–");
@@ -143,6 +245,10 @@ const stats = await p.evaluate(() => ["calls", "recorded", "size", "statsDetail"
 console.log("popup stats:", stats.join(" | "));
 const manifestVersion = JSON.parse(fs.readFileSync(path.join(ext, "manifest.json"))).version;
 assert.equal(await p.textContent("#version"), "v" + manifestVersion, "popup shows the installed version");
+// The pause shortcut is registered (headless Chrome doesn't assign keys; the title shows one when set).
+assert.deepEqual(await p.evaluate(() => chrome.commands.getAll().then((c) => c.filter((x) => x.name === "toggle-pause").map((x) => x.description))),
+  ["Pause or resume recording"]);
+assert.match(await p.getAttribute("#pause", "title"), /^Pause or resume recording( \(.+\))?$/);
 assert.equal(stats[0], "1");
 assert.match(stats[2], /^\d+(\.\d)? (KB|MB)$/);
 assert.match(stats[3], /^Meet 1 · 1 Word document/);
@@ -323,10 +429,63 @@ console.log("restored meetings:", titlesAfter.join(" | "));
       .map(([x, y]) => document.elementFromPoint(x, y)?.id));
     assert.deepEqual(hits, ["panel", "panel", "panel"], "the side panel stays visible and clickable");
   }
+  // Meet with the chat open and one other person: their tile fills the whole stage, and your
+  // self-view floats small in a corner. Nothing to enlarge: certainly not the self-view, ×6.
+  {
+    const spot = await hp.evaluate(() => {
+      const stage = document.getElementById("stage"), grid = document.getElementById("grid");
+      Object.assign(grid.style, { left: "0px", top: "0px", width: stage.offsetWidth + "px", height: stage.offsetHeight + "px" });
+      const pip = document.createElement("div");
+      pip.id = "pip";
+      pip.setAttribute("data-participant-id", "self");
+      pip.style.cssText = "position:absolute;right:8px;bottom:8px;width:235px;height:132px;background:#555";
+      stage.append(pip);
+      return { w: stage.offsetWidth, h: stage.offsetHeight };
+    });
+    await hp.waitForTimeout(1500);
+    const r = await hp.evaluate(() => ({ transform: getComputedStyle(document.getElementById("stage")).transform,
+      pip: document.getElementById("pip").getBoundingClientRect().width }));
+    assert.equal(r.transform, "none", "a tile filling the stage: left as it is " + JSON.stringify(r));
+    assert.ok(Math.abs(r.pip - 235) < 1, "the self-view keeps its size");
+    // Without the full tile (a small self-view is all that's found): still never blown up.
+    await hp.evaluate(() => { document.getElementById("grid").style.display = "none"; });
+    await hp.waitForTimeout(1500);
+    const pipOnly = await hp.evaluate(() => document.getElementById("pip").getBoundingClientRect().width);
+    assert.ok(pipOnly < 235 * 1.05, "a self-view alone isn't the layout: not enlarged, " + pipOnly);
+    await hp.evaluate(() => { document.getElementById("pip").remove(); document.getElementById("grid").style.display = ""; });
+    console.log("chat open, one tile filling the stage: left as Meet drew it (stage", spot.w + "×" + spot.h + ")");
+  }
   await hp.evaluate(() => { document.getElementById("panel").remove(); document.getElementById("stage").style.right = ""; layoutStage(); });
   await hp.setViewportSize({ width: 1000, height: 700 });
   await hp.waitForTimeout(500);
   console.log("hide captions: tiles fit, nothing spills past the stage at", sizes.map((s) => s.join("×")).join(", "), "· while resizing · with a side panel open");
+
+  // Meet's picture-in-picture window: captions hidden there too, the video taking the room;
+  // shown again with the switch.
+  {
+    await hp.click("#pipBtn");
+    await hp.waitForFunction(() => documentPictureInPicture.window, null, { timeout: 5000 });
+    const pipState = () => hp.evaluate(() => { const d = documentPictureInPicture.window.document;
+      return { video: d.getElementById("pvid").getBoundingClientRect().height, room: documentPictureInPicture.window.innerHeight - 60, captionsLeft: d.getElementById("pcap").getBoundingClientRect().left,
+        strip: d.getElementById("pcapwrap").getBoundingClientRect().height }; });
+    let ps;
+    for (let i = 0; i < 20 && (ps = await pipState()).strip > 0; i++) await hp.waitForTimeout(250);
+    assert.ok(ps.strip === 0 && ps.captionsLeft < -5000 && ps.video >= ps.room - 1, "mini window: captions hidden, the video takes the room " + JSON.stringify(ps));
+    await sw.evaluate(() => MT.saveSettings({ hideCaptions: false }));
+    for (let i = 0; i < 20 && (ps = await pipState()).strip === 0; i++) await hp.waitForTimeout(250);
+    assert.ok(ps.strip >= 160 && ps.captionsLeft >= 0 && ps.video < 200, "mini window: captions back " + JSON.stringify(ps));
+    await sw.evaluate(() => MT.saveSettings({ hideCaptions: true }));
+    for (let i = 0; i < 20 && (ps = await pipState()).strip > 0; i++) await hp.waitForTimeout(250);
+    assert.equal(ps.strip, 0, "hidden again");
+    const rep = await sw.evaluate(async () => {
+      const [tab] = await chrome.tabs.query({ url: "https://meet.google.com/hid-ecap-tns" });
+      return (await chrome.tabs.sendMessage(tab.id, { type: "diagnose" })).pipLayout;
+    });
+    assert.match(rep, /^window \d+×\d+, captions found\n.*COLLAPSED/s, "report describes the mini window");
+    await hp.evaluate(() => documentPictureInPicture.window.close());
+    await hp.waitForTimeout(800);
+    console.log("picture-in-picture: captions hidden there too (video " + Math.round(ps.video) + "px, all the room above the controls), shown with the switch");
+  }
 
   // The in-call indicator can be dragged anywhere and stays where it was left.
   {
@@ -392,6 +551,8 @@ console.log("restored meetings:", titlesAfter.join(" | "));
   assert.match(report.captionLayout, /call layout:[\s\S]*main#stage/);
   assert.match(report.captionLayout, /stage path:\n  video [\s\S]*main#stage[^\n]*bottom/);
   assert.ok(!/launch|Friday|thanks/i.test(JSON.stringify(report)), "no caption text in the report");
+  assert.ok(!/Alice|Walker|Carol|Bob|Sam Lee/.test(JSON.stringify(report)), "no participant names in the report (tile labels hidden)");
+  assert.match(JSON.stringify(report), /aria-label=Captions/, "control labels kept");
   // The in-call pill has a switch for it. The pill is in a closed shadow root, which only the
   // DevTools protocol reaches: find its "Show captions" button there and click it.
   const cdp = await hp.context().newCDPSession(hp);
@@ -446,6 +607,98 @@ console.log("restored meetings:", titlesAfter.join(" | "));
   fits(await layout(), 1000, 700, "hidden once more");
   await hp.close();
   console.log("hide captions: tiles", Math.round(hidden.tile.width) + "×" + Math.round(hidden.tile.height), "(from 782×440), still recording; off again:", shown.strip, "px strip");
+}
+
+// --- captions on screen but nothing read (the page changed): said so, not "Recording" ---------------
+{
+  await sw.evaluate(() => chrome.storage.local.set({ stuckAfterMs: 3000 }));
+  const gp = await ctx.newPage();
+  await gp.goto("https://meet.google.com/gar-bled-cap");
+  await gp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  const statusOf = () => sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://meet.google.com/gar-bled-cap" });
+    return chrome.tabs.sendMessage(tab.id, { type: "getStatus" });
+  });
+  await gp.waitForTimeout(4500);
+  assert.equal((await statusOf()).stuck, false, "captions read: not stuck, even with nothing new on screen");
+  await gp.evaluate(() => garble());
+  let st;
+  for (let i = 0; i < 40 && !(st = await statusOf()).stuck; i++) await gp.waitForTimeout(250);
+  assert.ok(st.stuck && st.captionsOn, "unreadable captions for a while: stuck " + JSON.stringify(st));
+  const badgeText = () => sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://meet.google.com/gar-bled-cap" });
+    return chrome.action.getBadgeText({ tabId: tab.id });
+  });
+  let badge;
+  for (let i = 0; i < 20 && (badge = await badgeText()) !== "!"; i++) await gp.waitForTimeout(250); // updated on the next tick
+  assert.equal(badge, "!", "toolbar badge warns");
+  console.log("stuck: captions changing, nothing read -> pill, popup and badge say so");
+  await sw.evaluate(() => chrome.storage.local.remove("stuckAfterMs"));
+  await gp.close();
+}
+
+// --- Meet addresses: the call's code wherever it is; none in the address -> known by the address ---
+assert.deepEqual(await sw.evaluate(() => ["/abc-defg-hij", "/meet/abc-defg-hij", "/abc-defg-hij/", "/meet/abc-defg-hij/details",
+  "/_meet/abc-defg-hij", "/u/4/abc-defg-hij", "/ABC-DEFG-HIJ", "/abcd-efgh-ijkl", "/", "/landing", "/lookup/teamroom",
+  "/xabcd-defg-hij", "/abc-defg-hijkl", ""].map(MT.meetCode)),
+  ["abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abc-defg-hij", "abcd-efgh-ijkl",
+   null, null, null, null, null, null], "Meet codes found in every address shape, and nowhere else");
+for (const [url, code] of [["https://meet.google.com/lookup/teamroom", "lookup/teamroom"], ["https://meet.google.com/_meet/new-shap-ecd?hs=1", "new-shap-ecd"]]) {
+  const xp = await ctx.newPage();
+  await xp.goto(url);
+  await xp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  let got = null;
+  for (let i = 0; i < 40 && !got; i++) {
+    got = await sw.evaluate(async (code) => {
+      const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === code);
+      return m && ((await chrome.storage.local.get("t:" + m.id))["t:" + m.id] || []).length >= 3 ? MT.link(m) : null;
+    }, code);
+    if (!got) await xp.waitForTimeout(250);
+  }
+  assert.equal(got, "https://meet.google.com/" + code, `recorded at ${url}, with its link`);
+  await xp.close();
+}
+console.log("Meet addresses: codes found in 8 shapes; a call with no code in its address recorded too");
+
+// --- Meet's newer address, meet.google.com/meet/<code>: recorded the same ---------------------------
+{
+  const np = await ctx.newPage();
+  await np.goto("https://meet.google.com/meet/new-path-cal?authuser=4");
+  await np.waitForFunction(() => window.done, null, { timeout: 30000 });
+  let found = null;
+  for (let i = 0; i < 40 && !found; i++) {
+    found = await sw.evaluate(async () => {
+      const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === "new-path-cal");
+      return m ? ((await chrome.storage.local.get("t:" + m.id))["t:" + m.id] || []).length : null;
+    });
+    if (!found) await np.waitForTimeout(250);
+  }
+  assert.ok(found >= 3, "a call at meet.google.com/meet/<code> is recorded: " + found);
+  console.log("meet.google.com/meet/<code>: recorded (" + found + " lines)");
+  await np.close();
+}
+
+// --- Meet in another language: captions still turned on, recorded and hidden ----------------------
+{
+  const lp = await ctx.newPage();
+  await lp.setViewportSize({ width: 1000, height: 700 });
+  await lp.goto("https://meet.google.com/esp-anol-mtg?hl=es");
+  await lp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  await lp.waitForTimeout(1500);
+  assert.equal(await lp.getAttribute("#cc", "aria-label"), "Desactivar subtítulos (c)", "captions turned on from the Spanish page");
+  const recorded = () => sw.evaluate(async () => {
+    const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === "esp-anol-mtg");
+    return m ? ((await chrome.storage.local.get("t:" + m.id))["t:" + m.id] || []).length : 0;
+  });
+  let lines = 0;
+  for (let i = 0; i < 40 && (lines = await recorded()) < 3; i++) await lp.waitForTimeout(250); // saved a moment later
+  assert.ok(lines >= 3, "recorded: " + lines);
+  const l = await lp.evaluate(() => ({ strip: document.getElementById("capbar").getBoundingClientRect().height,
+    tile: document.getElementById("grid").getBoundingClientRect().height }));
+  assert.equal((await sw.evaluate(() => MT.getSettings())).hideCaptions, true);
+  assert.ok(l.strip === 0 && l.tile > 500, "captions hidden and the video enlarged, with Spanish labels: " + JSON.stringify(l));
+  console.log("Meet in Spanish: captions turned on, recorded (" + lines + " lines), hidden, video enlarged");
+  await lp.close();
 }
 
 // --- Microsoft Teams ------------------------------------------------------------------------------
@@ -519,7 +772,7 @@ console.log("zoom:", zm.title, "->", path.basename(zFile.filename), zm.link);
 assert.equal(zm.title, "Call with Ann Lee, Ben Cho");
 assert.equal(zm.link, "https://zoom.us/j/9876543210");
 
-// --- rename a speaker, here and in future calls; the file follows ------------------------------------
+// --- rename a speaker, here and in future calls; the finished call's document is offered an update ---
 await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(zm.id));
 await v.click('button.spk[data-name="Ben Cho"]');
 await v.waitForSelector("#renameBox.open");
@@ -528,11 +781,16 @@ await v.check("#renameFuture");
 await v.screenshot({ path: shots + "/rename.png" });
 await v.click('#renameBox button[type="submit"]');
 await v.waitForSelector('button.spk[data-name="Benjamin Cho"]');
+for (let i = 0; i < 40 && !(await fileOf(zm.id)).outdated; i++) await v.waitForTimeout(250);
+assert.ok((await fileOf(zm.id)).outdated && fs.existsSync(zFile.filename), "document left as it was, marked out of date");
+await v.click("#saveNow");
+await v.waitForSelector("#saveMenu.open");
+await v.click('#saveMenu [data-mode="replace"]');
 for (let i = 0; i < 40 && !(await fileOf(zm.id)).filename.includes("Benjamin"); i++) await v.waitForTimeout(250);
 const zRenamed = await fileOf(zm.id);
-console.log("speaker renamed:", path.basename(zRenamed.filename));
+console.log("speaker renamed, then Update › Replace:", path.basename(zRenamed.filename));
 assert.equal(path.basename(zRenamed.filename), `${date} - Call with Ann Lee, Benjamin Cho.docx`);
-assert.ok(!fs.existsSync(zFile.filename), "old file replaced");
+assert.ok(!fs.existsSync(zFile.filename), "replaced: the old name is gone");
 assert.deepEqual((await v.evaluate(() => MT.getSettings())).nameMap, { "ben cho": "Benjamin Cho" });
 zLines = await sw.evaluate((k) => chrome.storage.local.get(k).then((d) => d[k]), "t:" + zm.id);
 assert.deepEqual(zLines.map((e) => e.speaker), ["Ann Lee", "Benjamin Cho", "Ann Lee"]);
@@ -586,13 +844,15 @@ await close();
   await v.evaluate(() => chrome.runtime.sendMessage({ type: "ping" }).catch(() => {}));
   const newDoc = path.join(run.downloads, "Meeting Transcripts", "2026-10-01", "2026-10-01 - Old call - Ann.docx");
   const newLib = path.join(run.downloads, "Meeting Transcripts", "library.json");
-  for (let i = 0; i < 80 && !(fs.existsSync(newDoc) && fs.existsSync(newLib) && !fs.existsSync(old.lib)); i++) await new Promise((r) => setTimeout(r, 250));
-  assert.ok(fs.existsSync(newDoc), "document moved to Meeting Transcripts");
-  assert.ok(!fs.existsSync(old.docx), "old document removed");
+  const fileRec = () => v.evaluate(() => chrome.storage.local.get("f:abc-defg-hij-1").then((d) => d["f:abc-defg-hij-1"]));
+  for (let i = 0; i < 80 && !(fs.existsSync(newLib) && !fs.existsSync(old.lib) && (await fileRec()).outdated); i++) await new Promise((r) => setTimeout(r, 250));
   assert.ok(fs.existsSync(newLib) && !fs.existsSync(old.lib), "library.json moved");
-  // Re-saved compressed: the first zip entry's method is deflate (8), not store (0).
-  assert.equal(fs.readFileSync(newDoc).readUInt16LE(8), 8, "re-saved document is compressed");
-  console.log("upgrade: moved to", path.relative(run.downloads, newDoc));
+  // A finished call's document may hold the user's own edits: an update never rewrites, moves
+  // or deletes it. The viewer offers to update it instead.
+  assert.ok(fs.existsSync(old.docx), "old document left as it was");
+  assert.ok(!fs.existsSync(newDoc), "no rewritten copy");
+  assert.equal((await fileRec()).outdated, true, "marked as out of date, for the viewer to offer an update");
+  console.log("upgrade: library.json moved; the finished call's document left untouched, offered for update");
   await run.close();
 }
 
@@ -757,6 +1017,43 @@ await close();
   assert.ok(fs.existsSync(lib), "library.json written again");
   assert.deepEqual(await v.evaluate(() => chrome.storage.local.get(["sync", "deleted"])), {}, "2.4 sync state forgotten");
   console.log("export/import: exported 2 calls, imported them elsewhere (newer copy wins, nothing removed), twice is harmless; 2.4 sync files import; 2.4 sync turned off");
+  await run.close();
+}
+
+// --- a deleted call stays deleted when the folder is imported; choosing its file brings it back ---
+{
+  const run = await launch();
+  const v = await run.ctx.newPage();
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html`);
+  const T0 = Date.now() - 3600_000;
+  const m = { id: "del-gone-now-" + T0, code: "del-gone-now", eventTitle: "Deleted call", startedAt: T0, endedAt: T0 + 300_000, speakers: ["Ann"] };
+  await v.evaluate(async (m) => {
+    await chrome.storage.local.set({ libraryReady: true });
+    await MT.saveMeeting(m, [{ speaker: "Ann", text: "This call gets deleted.", ts: m.startedAt }]);
+  }, m);
+  const saved = await v.evaluate((id) => chrome.runtime.sendMessage({ type: "saveNow", id }), m.id);
+  assert.ok(saved.ok && fs.existsSync(saved.result.filename), "its Word document saved");
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(m.id));
+  await v.waitForSelector(".turn p");
+  await v.click("#delete");
+  await v.waitForSelector("#toast.show");
+  await v.evaluate(() => hideToast());
+  assert.ok(fs.existsSync(saved.result.filename), "its document is still in the folder");
+  const lib = path.join(run.downloads, "Meeting Transcripts", "library.json");
+  // The folder: its Word document (and library.json, once written) are there; the call stays deleted.
+  await v.evaluate(() => document.getElementById("importFolder").removeAttribute("webkitdirectory"));
+  await v.setInputFiles("#importFolder", [saved.result.filename, ...(fs.existsSync(lib) ? [lib] : [])]);
+  await v.waitForSelector("#toast.show");
+  const folderResult = await v.textContent("#toastText");
+  assert.match(folderResult, /Imported 0 calls · .*1 you deleted, skipped/, folderResult);
+  assert.equal((await v.evaluate(() => MT.listMeetings())).length, 0, "not brought back");
+  await v.evaluate(() => hideToast());
+  // Import › File… with its document chosen: back, and no longer remembered as deleted.
+  await v.setInputFiles("#importInput", [saved.result.filename]);
+  await v.waitForFunction(() => /Imported 1 call/.test(document.getElementById("toastText").textContent));
+  assert.equal((await v.evaluate(() => MT.listMeetings())).length, 1, "brought back on purpose");
+  assert.deepEqual(await v.evaluate(() => MT.getTrash()), {}, "forgotten as deleted");
+  console.log("deleted calls: skipped by a folder import (" + folderResult + "); back when their file is chosen");
   await run.close();
 }
 

@@ -6,6 +6,8 @@ function setBadge(tabId, msg) {
   let text = "", color = "#5f6368", title = MT.APP;
   if (msg.inMeeting && msg.paused) {
     text = "II"; title = MT.APP + ": paused";
+  } else if (msg.inMeeting && msg.stuck) {
+    text = "!"; color = "#e8710a"; title = MT.APP + ": captions are on but nothing is being recorded";
   } else if (msg.inMeeting && msg.captionsOn) {
     text = "REC"; color = "#d93025"; title = MT.APP + ": recording captions";
   } else if (msg.inMeeting) {
@@ -57,11 +59,12 @@ async function fileRecords() {
   return chrome.storage.local.get(Object.keys(meetings).map((id) => "f:" + id));
 }
 
-async function uniquePath(id, day, base) {
+async function uniquePath(id, day, base, avoid) {
   const all = await fileRecords();
   const taken = Object.entries(all)
     .filter(([k, f]) => k.startsWith("f:") && k !== "f:" + id && f && f.filename)
     .map(([, f]) => norm(f.filename).toLowerCase());
+  if (avoid) taken.push(norm(avoid).toLowerCase()); // a new copy beside the call's own document
   for (let n = 1; ; n++) {
     const rel = `${FOLDER}/${day}/${base}${n > 1 ? ` (${n})` : ""}.docx`;
     if (!taken.some((f) => f.endsWith("/" + rel.toLowerCase()))) return rel;
@@ -75,20 +78,32 @@ function saveDoc(id, opts = {}) {
   return saving.get(id);
 }
 
-async function doSave(id, { manual = false } = {}) {
+// `final`: saved as the call ends. `mode` (asked for in the viewer, for a finished call's
+// document): "replace" rewrites it, "copy" writes a new one beside it and leaves it alone.
+async function doSave(id, { manual = false, final = false, mode = "replace" } = {}) {
   if (!manual && !(await MT.getSettings()).autoSave) return null;
   const meta = (await MT.listMeetings()).find((m) => m.id === id);
   const entries = await MT.getTranscript(id);
   if (!meta || !entries.length) return null;
 
   const prev = (await MT.getFile(id)) || {};
-  const rel = await uniquePath(id, MT.dayFolder(meta), MT.docName(meta));
+  const copy = manual && mode === "copy" && prev.downloadId;
+  const rel = await uniquePath(id, MT.dayFolder(meta), MT.docName(meta), copy ? prev.filename : null);
   const blocks = MT.docBlocks(meta, entries);
   const h = hash(DOCX.FORMAT + rel + JSON.stringify(blocks)); // a new format rewrites the file
-  if (prev.downloadId && prev.hash === h && !prev.error && !manual) return prev;
+  if (prev.downloadId && prev.hash === h && !prev.error && !manual) {
+    if (final && !prev.final) await MT.setFile(id, { ...prev, final: true });
+    return prev;
+  }
+  // The call is over and its document may hold the user's own edits: leave it, and let the
+  // viewer offer to update it.
+  if (!manual && MT.isSettled(meta, prev)) {
+    if (!prev.outdated) await MT.setFile(id, { ...prev, outdated: true });
+    return prev;
+  }
 
   try {
-    if (prev.downloadId) {
+    if (prev.downloadId && !copy) {
       const [old] = await chrome.downloads.search({ id: prev.downloadId });
       if (old && old.exists && !norm(old.filename).endsWith("/" + rel)) await chrome.downloads.removeFile(old.id).catch(() => {});
       await chrome.downloads.erase({ id: prev.downloadId });
@@ -107,7 +122,8 @@ async function doSave(id, { manual = false } = {}) {
     } finally {
       if (!manual) await chrome.downloads.setUiOptions({ enabled: true }).catch(() => {});
     }
-    const result = { downloadId: item.id, filename: item.filename, savedAt: Date.now(), hash: h, error: null };
+    const result = { downloadId: item.id, filename: item.filename, savedAt: Date.now(), hash: h, error: null,
+      final: final || !!prev.final || (manual && MT.isSettled(meta, prev)), outdated: false };
     await MT.setFile(id, result);
     return result;
   } catch (err) {
@@ -135,11 +151,12 @@ const IDLE_MIN = 2;
 const LAYOUT = 4; // 2: one folder per day, "Call with …"; 3: "Meeting Transcripts" instead of "Meet Transcripts";
                   // 4: compressed .docx, names without icon glyphs or doubled names
 
+// Documents of finished calls are the user's (see MT.isSettled) and stay where they are: the
+// new layout applies to calls still being recorded and to documents saved from now on.
 async function migrateFiles() {
-  const all = await chrome.storage.local.get(null);
-  if (all.fileLayout === LAYOUT) return;
-  for (const key of Object.keys(all)) {
-    if (key.startsWith("f:") && all[key].downloadId) await saveDoc(key.slice(2)).catch(() => {});
+  if ((await chrome.storage.local.get("fileLayout")).fileLayout === LAYOUT) return; // the usual case: one small read
+  for (const [key, f] of Object.entries(await fileRecords())) {
+    if (key.startsWith("f:") && f && f.downloadId) await saveDoc(key.slice(2)).catch(() => {});
   }
   await chrome.storage.local.set({ fileLayout: LAYOUT });
 }
@@ -174,7 +191,7 @@ async function writeLibraryFile() {
     if (k.startsWith("f:")) files[k.slice(2)] = v;
   }
   const json = JSON.stringify({ app: "meet-transcripts", kind: "library", version: 1, savedAt: Date.now(),
-    settings, meetings: all.meetings || {}, transcripts, files });
+    settings, meetings: all.meetings || {}, transcripts, files, trash: all.trash || {} });
   const bytes = new TextEncoder().encode(json);
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -276,6 +293,12 @@ chrome.runtime.onInstalled.addListener(async ({ reason, previousVersion }) => {
   chrome.tabs.create({ url: chrome.runtime.getURL("viewer/viewer.html#welcome") });
 });
 
+// The keyboard shortcut (Alt+Shift+P by default; chrome://extensions/shortcuts to change it):
+// pause or resume, with the hands on the keyboard in the call.
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "toggle-pause") await MT.saveSettings({ paused: !(await MT.getSettings()).paused });
+});
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name.startsWith("save:")) saveDoc(alarm.name.slice(5)).catch(() => {});
 });
@@ -286,7 +309,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   if (!id) return;
   await chrome.storage.session.remove(key);
   chrome.alarms.clear("save:" + id);
-  saveDoc(id).catch(() => {});
+  saveDoc(id, { final: true }).catch(() => {});
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
@@ -298,16 +321,18 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     case "meetingSaved":
       if (tabId) chrome.storage.session.set({ ["tab:" + tabId]: msg.id });
       chrome.alarms.create("save:" + msg.id, { delayInMinutes: IDLE_MIN });
+      // Rejoined (the same transcript goes on): its document is live again until the call ends.
+      MT.getFile(msg.id).then((f) => f && f.final && MT.setFile(msg.id, { ...f, final: false }));
       return false;
     case "meetingEnded":
       chrome.alarms.clear("save:" + msg.id);
-      saveDoc(msg.id).catch(() => {});
+      saveDoc(msg.id, { final: true }).catch(() => {});
       return false;
     case "resave": // renamed in the viewer: bring an already saved file up to date
       MT.getFile(msg.id).then((f) => f && f.downloadId && saveDoc(msg.id).catch(() => {}));
       return false;
     case "saveNow":
-      saveDoc(msg.id, { manual: true })
+      saveDoc(msg.id, { manual: true, mode: msg.mode })
         .then((r) => reply({ ok: true, result: r }), (e) => reply({ ok: false, error: e.message }));
       return true;
     case "openDownloadSettings":

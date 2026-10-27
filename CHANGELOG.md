@@ -3,6 +3,50 @@
 Each version here becomes a release on GitHub, with the extension zip attached, as soon as
 it's pushed to `main` with the matching `version` in `manifest.json`.
 
+## 2.6.5
+
+- **Fixed: calls at Meet's newer address weren't recorded.** Meet now opens some calls at
+  `meet.google.com/meet/<code>` instead of `meet.google.com/<code>`; the extension didn't
+  recognise those as calls. Now the call's code is found wherever it is in the address, and
+  a call whose address has no code at all is still recorded when Meet's call controls are on
+  screen, so a future change of address doesn't stop recording.
+
+From the CTO's test report:
+
+- **Fixed: notes added to a Word document in Word could be lost.** A call's document was
+  rewritten when the call or a speaker was renamed, when late captions arrived or on a
+  layout change in an update. Once a call is over, its document is now never rewritten,
+  renamed or deleted automatically; the library shows *Changed since* and **Update
+  .docx…**, which saves a new copy or replaces it, as you choose.
+- **Fixed: Find highlighted inside `&`, `<`, `>` and `"`** (searching "a" in "Tom & Jerry"
+  marked the a of `&amp;`).
+- **Deleted calls stay deleted** when the Meeting Transcripts folder is imported, even
+  though their documents are still there. Choosing a document with *Import › File…* brings
+  its call back.
+- **"Captions on · nothing recorded".** When captions keep showing for a minute and none
+  are picked up (the call page has changed), the pill, the popup and the toolbar badge (`!`)
+  say so, instead of "Recording", and point to *Copy a report*.
+- **Google Meet in any language:** captions are turned on and hidden whatever the language
+  of the page. Teams and Zoom in another language: the README says what to do.
+- **Copy a report holds no names:** labels that could carry a participant's name are left
+  out.
+- **A note about recording consent** in the popup, once, until acknowledged.
+- **Alt+Shift+P** pauses and resumes recording (change it at `chrome://extensions/shortcuts`).
+- **Fixed: opening the chat in Meet could blow the video up** (a name filling the screen).
+  With the chat open Meet shows one tile filling the stage, and only the small self-view was
+  measured, then enlarged ×6. A stage already filled is left alone now, and enlarging is
+  limited to ×2.5.
+- **Meet's picture-in-picture window** (the small pop-out): captions are hidden there too
+  while *Hide captions* is on, and the video takes the room. *Copy a report* describes it.
+- Durations read "1 h" rather than "1 h 0 min".
+- Starting the background worker no longer reads the whole library just to check one flag.
+
+- **The transcripts library fits any window size.** In a narrower window, the toolbar
+  (*Copy for AI*, *Export*, delete) wraps onto a second line instead of being cut off; on a
+  phone-sized window the filters share one row, the search gets its own, and long meeting
+  titles no longer push the page wider than the window. The *Export* and *Import* menus and
+  the rename box always open fully on screen.
+
 ## 2.6.4
 
 - **Fixed: hiding captions didn't enlarge the video when cameras were on.** Meet draws each
