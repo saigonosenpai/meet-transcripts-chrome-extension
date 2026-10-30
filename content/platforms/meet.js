@@ -46,6 +46,57 @@ const MT_PLATFORM = (() => {
     return lines.length < 2 ? null : { speaker: lines[0], text: lines.slice(1).join(" ") };
   }
 
+  // --- the call's chat ----------------------------------------------------------------------
+  // Messages typed in the chat panel (while it's open): each carries Meet's message id; the
+  // sender and the time ("10:08 AM") head the group of messages around it.
+  const CHAT_BOX_SEL = ['textarea[aria-label*="message" i]', 'textarea[placeholder*="message" i]',
+    '[contenteditable="true"][aria-label*="message" i]', 'textarea[jsname]'];
+  // A time at the end of a line ("10:08 AM", "14:05"), alone or after the sender's name.
+  const TIME_RE = /(?:^|\s)(\d{1,2})[:.](\d{2})\s*([ap])?\.?\s*m?\.?\s*$/i;
+
+  // The side panel around the message box.
+  function chatPanel() {
+    let el = first(CHAT_BOX_SEL);
+    while (el && el.parentElement && el.parentElement !== document.body) {
+      el = el.parentElement;
+      if (el.getBoundingClientRect().height >= window.innerHeight * 0.4) return el;
+    }
+    return null;
+  }
+
+  // "10:08 AM" → that time today (ms), or null.
+  function parseTime(s) {
+    const m = String(s || "").match(TIME_RE);
+    if (!m) return null;
+    const h = m[3] ? (+m[1] % 12) + (/p/i.test(m[3]) ? 12 : 0) : +m[1]; // "2:05 PM" or "14:05"
+    const d = new Date();
+    d.setHours(h, +m[2], 0, 0);
+    return d.getTime();
+  }
+
+  function chatMessages() {
+    const panel = chatPanel();
+    if (!panel) return [];
+    const out = [];
+    for (const m of panel.querySelectorAll("[data-message-id]")) {
+      if (m.parentElement && m.parentElement.closest("[data-message-id]")) continue; // inside another message
+      const text = m.innerText.replace(/\s+/g, " ").trim();
+      if (!text) continue;
+      let sender = (m.closest("[data-sender-name]") || { getAttribute: () => "" }).getAttribute("data-sender-name") || "", time = null;
+      for (let g = m.parentElement, i = 0; g && g !== panel && i < 4; g = g.parentElement, i++) {
+        const lines = g.innerText.split("\n").map((l) => l.trim()).filter(Boolean);
+        const at = lines.findIndex((l) => text.startsWith(l) || l.startsWith(text.slice(0, 40)));
+        const head = lines.slice(0, at < 0 ? lines.length : at);
+        if (time === null) time = parseTime(head.find((l) => TIME_RE.test(l)));
+        // The sender: the first heading line, without a time it may end with.
+        if (!sender) sender = head.map((l) => l.replace(TIME_RE, "").trim()).find((l) => l && l.length <= 60) || "";
+        if (sender && time !== null) break;
+      }
+      out.push({ key: m.getAttribute("data-message-id"), sender: cleanName(sender) || "Unknown", text, at: time });
+    }
+    return out;
+  }
+
   // The calendar event's title, or "" for a spontaneous call (Meet then shows just the code).
   function eventTitle() {
     const code = callId();
@@ -90,6 +141,8 @@ const MT_PLATFORM = (() => {
     // The caption button only exists inside a call; once it is gone the user has left.
     inCall: () => !!first(REGION_SEL) || captionButtons().length > 0,
     captionRegion: (root = document) => first(REGION_SEL, root),
+    chatMessages,
+    chatPanel,
     pip: true, // Meet's picture-in-picture window shows captions too (see the recorder)
     controlSel: CAPTION_BTN_SEL, // in the control bar, whatever the language
     blocks,

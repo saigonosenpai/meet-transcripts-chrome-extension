@@ -127,6 +127,24 @@ window.openPip = async () => {
     '<div id="pctrl" style="flex:none;height:60px"><button aria-label="Leave call">Leave</button></div>';
   return w;
 };
+// The chat panel: Meet's history from before the call, then this call's messages; one more
+// arrives while it's open. Each message has Meet's message id; sender and time head a group.
+const hhmm = (t) => new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+const chatGroup = (sender, t, msgs) => '<div class="grp"><div class="hd"><span class="nm">' + sender + '</span> <span class="tm">' + hhmm(t) +
+  '</span></div>' + msgs.map(([id, text]) => '<div class="msg" data-message-id="' + id + '"><div class="txt">' + text + '</div></div>').join("") + '</div>';
+window.openChat = () => {
+  const panel = document.createElement("aside");
+  panel.id = "chatPanel";
+  panel.style.cssText = "position:absolute;top:16px;right:16px;bottom:96px;width:344px;background:#fff;color:#000;overflow:auto";
+  panel.innerHTML = '<div class="history">' +
+    chatGroup("Claire Fitzsimons", Date.now() - 3 * 3600e3, [["old-1", "From an earlier day, not this call"]]) +
+    chatGroup("Alice Walker", Date.now(), [["m-1", "Here's the deck: https://example.com/deck"], ["m-2", "Slides 4 & 5 are new"]]) +
+    chatGroup("You", Date.now(), [["m-3", "Thanks, looking now"]]) +
+    '</div><textarea aria-label="Send a message to everyone"></textarea>';
+  document.body.append(panel);
+  setTimeout(() => panel.querySelector(".history").insertAdjacentHTML("beforeend",
+    chatGroup("Bob", Date.now(), [["m-4", "Can we <b>move</b> Friday's review?"]])), 1500);
+};
 // Leaving the call: Meet swaps the call UI for a "You left the meeting" screen.
 window.leave = () => {
   document.body.innerHTML = "<h1>You left the meeting</h1><button>Rejoin</button>";

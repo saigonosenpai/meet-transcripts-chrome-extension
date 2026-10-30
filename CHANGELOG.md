@@ -3,6 +3,15 @@
 Each version here becomes a release on GitHub, with the extension zip attached, as soon as
 it's pushed to `main` with the matching `version` in `manifest.json`.
 
+## 2.7.0
+
+- **The call's chat is kept too (Google Meet).** Messages typed in the chat, while its panel
+  is open, are saved with the call: in the transcript at the time they were sent, marked
+  *Chat*, and in the Word document and exports (*in the chat*). Messages from before the call
+  (Meet's chat can show earlier history) are left out. They don't count as speaking time.
+- *Copy a report* describes the chat panel's structure (never the messages or names), to
+  tune this to Meet's page.
+
 ## 2.6.5
 
 - **Fixed: calls at Meet's newer address weren't recorded.** Meet now opens some calls at

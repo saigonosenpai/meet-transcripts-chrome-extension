@@ -198,6 +198,31 @@
   }
   const stuck = () => !!region && !!session && !settings.paused && enabled() && captionChangedAt - capturedAt > stuckAfter;
 
+  // --- the call's chat ----------------------------------------------------------------------
+  //
+  // Messages typed in the chat (Meet, while its chat panel is open) are kept with the call,
+  // in meta.chat, by the platform's message id. A message sent before the call began (Meet's
+  // chat can show earlier history) isn't part of it; one sent earlier in the call, read when
+  // the panel opens, gets the time Meet shows.
+  async function captureChat() {
+    if (!P.chatMessages || !code || settings.paused || !enabled()) return;
+    let found;
+    try { found = P.chatMessages(); } catch { return; }
+    if (!found.length) return;
+    const s = await ensureSession();
+    const chat = s.meta.chat || (s.meta.chat = []);
+    const seen = new Set(chat.map((c) => c.key));
+    let added = false;
+    for (const m of found) {
+      if (!m.key || seen.has(m.key)) continue;
+      seen.add(m.key);
+      if (m.at && m.at < s.meta.startedAt - 60_000) continue; // history from before this call
+      chat.push({ key: m.key, sender: speakerName(m.sender), text: m.text, ts: Math.min(Date.now(), Math.max(m.at || Date.now(), s.meta.startedAt)) });
+      added = true;
+    }
+    if (added) scheduleSave();
+  }
+
   // --- gaps: stretches of a call with nothing recorded ----------------------------------
 
   function trackGap() {
@@ -248,14 +273,15 @@
 
   async function save() {
     clearTimeout(saveTimer);
-    if (!session || !session.entries.length || !alive) return;
+    if (!session || !(session.entries.length || (session.meta.chat || []).length) || !alive) return;
     const { meta, entries } = session;
     meta.platform = P.id;
     meta.link = P.link(meta.code) || meta.link || "";
     meta.eventTitle = P.eventTitle() || meta.eventTitle || "";
     meta.self = me() || meta.self || "";
     meta.participants = [...participants];
-    meta.endedAt = Math.max(meta.endedAt || 0, entries[entries.length - 1].ts);
+    meta.endedAt = Math.max(meta.endedAt || 0, entries.length ? entries[entries.length - 1].ts : 0,
+      ...(meta.chat || []).map((c) => c.ts));
     try {
       await MT.saveMeeting(meta, entries.filter((e) => e.text));
       chrome.runtime.sendMessage({ type: "meetingSaved", id: meta.id });
@@ -675,7 +701,7 @@
         outOfCallSince = -1; // ended; stays so until the call UI is back
         endSession();
       }
-      if (inCall) trackGap();
+      if (inCall) { trackGap(); captureChat(); }
     } else if (region) {
       attach(null);
     }
@@ -867,6 +893,24 @@
     return lines.join("\n");
   }
 
+  // The chat panel, when it's open: its structure (never what was written, nor names), Meet's
+  // message ids found, and any embedded pages (the chat could be one).
+  function chatReport() {
+    if (!P.chatPanel) return null;
+    const panel = P.chatPanel();
+    const frames = [...document.querySelectorAll("iframe")].map((f) => {
+      try { const u = new URL(f.src, location.href); return u.origin + u.pathname.replace(/\d{5,}/g, "<number>"); } catch { return "(no address)"; }
+    }).filter((f) => !/^about:/.test(f)).slice(0, 10);
+    return {
+      panelFound: !!panel,
+      messageIds: document.querySelectorAll("[data-message-id]").length,
+      read: P.chatMessages ? P.chatMessages().length : 0,
+      recorded: session ? (session.meta.chat || []).length : 0,
+      frames,
+      panel: panel ? outline(panel, 7).split("\n").slice(0, 150).join("\n") : null,
+    };
+  }
+
   function diagnose() {
     const candidates = [...document.querySelectorAll("[id], [class], [data-tid], [aria-label]")].filter((el) =>
       /caption|subtitle|transcri/i.test([el.id, typeof el.className === "string" ? el.className : "",
@@ -882,6 +926,7 @@
       captionArea: region ? outline(region, 3) : null,
       captionLayout: layoutReport(),
       pipLayout: pipReport(),
+      chat: chatReport(),
       candidates: candidates.map((el) => outline(el, 2)),
     };
   }
