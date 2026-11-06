@@ -5,6 +5,10 @@ it's pushed to `main` with the matching `version` in `manifest.json`.
 
 ## 2.7.0
 
+- **Fixed: captions weren't turned on in Google Meet any more.** Meet's captions button now
+  opens a small menu (*Turn on captions*, *Translate speech*, settings) instead of turning
+  them on, so nothing was recorded. The extension now picks *Turn on captions* in that menu,
+  and still works with the older button.
 - **The call's chat is kept too (Google Meet).** Messages typed in the chat, while its panel
   is open, are saved with the call: in the transcript at the time they were sent, marked
   *Chat*, and in the Word document and exports (*in the chat*). Messages from before the call

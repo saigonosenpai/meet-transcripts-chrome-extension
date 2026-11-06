@@ -2,7 +2,7 @@
 // revised in place (and trimmed at the front once it gets long).
 
 const MT_PLATFORM = (() => {
-  const { first, cleanName } = MT_DOM;
+  const { first, cleanName, visible, label, sleep } = MT_DOM;
   // Meet's class names are obfuscated and change between releases, so every lookup has a
   // structural fallback.
   const REGION_SEL = ['[role="region"][aria-label*="aption" i]', '[role="region"][aria-label*="ubtit" i]',
@@ -129,10 +129,31 @@ const MT_PLATFORM = (() => {
     return el ? el.getAttribute("aria-label").replace(/^Google Account:\s*/i, "").split(/\s*[(\n]/)[0].trim() : "";
   }
 
-  function enableCaptions() {
-    const btn = captionButtons().find((b) =>
-      /turn on|show/i.test(b.getAttribute("aria-label") || "") || b.getAttribute("aria-pressed") === "false");
-    if (btn) btn.click();
+  // Turning captions on. The captions button used to do it; since November 2026 it can open a
+  // small menu instead (Turn on captions · Translate speech · settings), where "Turn on
+  // captions" does. So: click what says "Turn on captions" (preferring one in an open menu), or
+  // else the captions button, then, if a "Turn on captions" appears (the menu), click that.
+  // In another language, with no such label, the captions button's own state (aria-pressed)
+  // is what's used.
+  const TURN_ON = /turn on (live )?captions|show captions/i, TURN_OFF = /turn off|hide/i;
+  const CONTROL_SEL = 'button, [role="button"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="switch"]';
+  const inMenu = (el) => !!el.closest('[role="menu"], [role="dialog"], [role="listbox"], [role="menubar"]');
+  const turnOnControls = (except) => [...document.querySelectorAll(CONTROL_SEL)]
+    .filter((el) => el !== except && visible(el) && TURN_ON.test(label(el)) && !TURN_OFF.test(label(el)))
+    .sort((a, b) => inMenu(b) - inMenu(a));
+
+  async function enableCaptions() {
+    const on = () => !!first(REGION_SEL);
+    const first_ = turnOnControls()[0] ||
+      captionButtons().find((b) => visible(b) && b.getAttribute("aria-pressed") !== "true" && !TURN_OFF.test(label(b)));
+    if (!first_) return;
+    first_.click();
+    // A menu may open: its "Turn on captions" is the one that does it.
+    for (let waited = 0; waited < 1500 && !on(); waited += 150) {
+      await sleep(150);
+      const item = turnOnControls(first_)[0];
+      if (item) { item.click(); return; }
+    }
   }
 
   return {

@@ -63,9 +63,10 @@ layoutStage();
 window.someoneJoined = () => layoutStage(true);
 // Meet re-renders the stage, resetting its class list: classes added by others don't last.
 setInterval(() => { document.getElementById("stage").className = "stg"; }, 300);
-document.getElementById("cc").onclick = (e) => {
-  e.target.setAttribute("aria-pressed", "true");
-  e.target.setAttribute("aria-label", es ? "Desactivar subtítulos (c)" : "Turn off captions (c)");
+const turnOnCaptions = () => {
+  const cc = document.getElementById("cc");
+  cc.setAttribute("aria-pressed", "true");
+  cc.setAttribute("aria-label", es ? "Desactivar subtítulos (c)" : "Turn off captions (c)");
   region = document.createElement("div");
   region.setAttribute("role", "region");
   region.setAttribute("aria-label", es ? "Subtítulos" : "Captions");
@@ -80,6 +81,26 @@ document.getElementById("cc").onclick = (e) => {
   layoutStage();
   run();
 };
+// ?menu=1: Meet since November 2026. The captions button opens a small menu; its
+// "Turn on captions" (a button with an icon glyph and text, no label) turns them on.
+const menuMode = new URLSearchParams(location.search).get("menu") === "1";
+if (menuMode) {
+  const cc = document.getElementById("cc");
+  cc.setAttribute("aria-label", "Captions");
+  cc.removeAttribute("aria-pressed");
+  cc.onclick = () => {
+    let m = document.getElementById("ccMenu");
+    if (m) { m.remove(); return; } // the button toggles its menu
+    m = document.createElement("div");
+    m.id = "ccMenu";
+    m.setAttribute("role", "dialog");
+    m.style.cssText = "position:absolute;bottom:90px;left:20px;background:#333;color:#fff;padding:8px";
+    m.innerHTML = '<button id="ccOn"><i class="google-symbols" aria-hidden="true">closed_caption</i> Turn on captions</button>' +
+      '<button><i class="google-symbols" aria-hidden="true">translate</i> Translate speech</button><button aria-label="Caption settings">⚙</button>';
+    document.body.append(m);
+    document.getElementById("ccOn").onclick = () => { m.remove(); turnOnCaptions(); };
+  };
+} else document.getElementById("cc").onclick = turnOnCaptions;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 function block(name) {
   const b = document.createElement("div");

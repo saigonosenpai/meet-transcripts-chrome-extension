@@ -715,6 +715,26 @@ console.log("Meet addresses: codes found in 8 shapes; a call with no code in its
   await cp.close();
 }
 
+// --- Meet's captions menu (November 2026): the button opens a menu; "Turn on captions" is in it --
+{
+  const mp = await ctx.newPage();
+  await mp.goto("https://meet.google.com/men-uccb-tns?menu=1");
+  await mp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  assert.equal(await mp.getAttribute("#cc", "aria-pressed"), "true", "captions turned on through the menu");
+  assert.equal(await mp.$("#ccMenu"), null, "and the menu closed");
+  let lines = 0;
+  for (let i = 0; i < 40 && lines < 3; i++) {
+    lines = await sw.evaluate(async () => {
+      const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === "men-uccb-tns");
+      return m ? ((await chrome.storage.local.get("t:" + m.id))["t:" + m.id] || []).length : 0;
+    });
+    if (lines < 3) await mp.waitForTimeout(250);
+  }
+  assert.ok(lines >= 3, "recorded: " + lines);
+  console.log("captions menu: opened, Turn on captions clicked, recorded (" + lines + " lines)");
+  await mp.close();
+}
+
 // --- Meet in another language: captions still turned on, recorded and hidden ----------------------
 {
   const lp = await ctx.newPage();
