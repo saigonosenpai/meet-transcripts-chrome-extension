@@ -263,6 +263,8 @@ document) or **Replace this document** (your edits in Word are lost).
   recording has a hole: captions off, recording paused, or you'd left and rejoined.
 - **Everything / Questions / Action items / Decisions** filters. These are picked out by
   keywords, so skim them in context.
+- **Chat messages** (Google Meet): what's typed in the call's chat while its panel is open
+  appears in the transcript at the time it was sent, marked *Chat*, and in the Word document.
 - **Find** within the transcript.
 - **Copy for AI** copies the transcript with a prompt asking for a summary, key points,
   action items and open questions. Paste into any AI chat.

@@ -208,7 +208,8 @@ function renderTranscript() {
   const q = query.toLowerCase();
   let turns;
   if (filter === "all") {
-    turns = q ? MT.groupTurns(entries) : MT.timeline(current, entries); // gaps only in the full transcript
+    turns = q ? [...MT.groupTurns(entries), ...MT.chatItems(current)].sort((a, b) => a.ts - b.ts)
+      : MT.timeline(current, entries); // gaps only in the full transcript
   } else {
     // Sentence-level filters: each matching sentence stands on its own.
     turns = MT.highlights(entries, filter).map((h) => ({ speaker: h.speaker, ts: h.ts, lines: [{ text: h.text }] }));
@@ -229,6 +230,7 @@ function renderTranscript() {
     return `<div class="turn">${avatar(t.speaker, colors[t.speaker] || COLORS[0])}<div>` +
       `<div class="head"><span class="who">${esc(t.speaker)}</span>` +
       `<time title="${esc(new Date(t.ts).toLocaleTimeString())}">${MT.clock(t.ts - current.startedAt)}</time>` +
+      `${t.kind === "chat" ? '<span class="chat-pill" title="Typed in the call\'s chat">Chat</span>' : ""}` +
       `${isLive ? '<span class="live-pill">Live</span>' : ""}</div>` +
       `<p>${highlight(t.lines.map((l) => l.text).join(" "))}</p></div></div>`;
   }).join("") || `<div class="empty-state"><strong>Nothing here</strong>${

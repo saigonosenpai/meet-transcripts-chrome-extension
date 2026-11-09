@@ -678,6 +678,63 @@ console.log("Meet addresses: codes found in 8 shapes; a call with no code in its
   await np.close();
 }
 
+// --- the call's chat: messages typed in it are kept with the call, in time order ----------------
+{
+  const cp = await ctx.newPage();
+  await cp.goto("https://meet.google.com/cha-tmsg-tst");
+  await cp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  await cp.evaluate(() => openChat());
+  const chatOf = () => sw.evaluate(async () => {
+    const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === "cha-tmsg-tst");
+    return m ? { chat: (m.chat || []).map((c) => [c.sender, c.text]), id: m.id } : null;
+  });
+  let got;
+  for (let i = 0; i < 60 && !((got = await chatOf()) && got.chat.length >= 4); i++) await cp.waitForTimeout(250);
+  assert.deepEqual(got.chat, [["Alice Walker", "Here's the deck: https://example.com/deck"], ["Alice Walker", "Slides 4 & 5 are new"],
+    ["Sam Lee", "Thanks, looking now"], ["Bob", "Can we move Friday's review?"]], "this call's messages, in order; not the earlier history");
+  const text = await sw.evaluate(async (id) => {
+    const m = (await MT.listMeetings()).find((x) => x.id === id);
+    return MT.toText(m, await MT.getTranscript(id));
+  }, got.id);
+  assert.match(text, /Alice Walker \(chat\): Here's the deck/, "in the exported transcript, marked as chat");
+  assert.ok(!/earlier day/.test(text));
+  // Shown in the library, marked Chat.
+  const lv = await ctx.newPage();
+  await lv.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(got.id));
+  await lv.waitForSelector(".chat-pill");
+  assert.equal(await lv.locator(".turn:has(.chat-pill)").count(), 4, "four chat messages in the transcript");
+  await lv.close();
+  // The report describes the chat panel without its text.
+  const rep = await sw.evaluate(async () => {
+    const [tab] = await chrome.tabs.query({ url: "https://meet.google.com/cha-tmsg-tst" });
+    return (await chrome.tabs.sendMessage(tab.id, { type: "diagnose" })).chat;
+  });
+  assert.ok(rep.panelFound && rep.messageIds === 5 && rep.read === 5, JSON.stringify(rep).slice(0, 300));
+  assert.ok(!/deck|Slides|Friday|Thanks|Alice|Claire|Bob/.test(JSON.stringify(rep)), "no message text or names in the report");
+  console.log("chat: 4 messages from this call kept (the earlier history skipped), in the transcript and exports, marked chat");
+  await cp.close();
+}
+
+// --- Meet's captions menu (November 2026): the button opens a menu; "Turn on captions" is in it --
+{
+  const mp = await ctx.newPage();
+  await mp.goto("https://meet.google.com/men-uccb-tns?menu=1");
+  await mp.waitForFunction(() => window.done, null, { timeout: 30000 });
+  assert.equal(await mp.getAttribute("#cc", "aria-pressed"), "true", "captions turned on through the menu");
+  assert.equal(await mp.$("#ccMenu"), null, "and the menu closed");
+  let lines = 0;
+  for (let i = 0; i < 40 && lines < 3; i++) {
+    lines = await sw.evaluate(async () => {
+      const m = Object.values((await chrome.storage.local.get("meetings")).meetings).find((x) => x.code === "men-uccb-tns");
+      return m ? ((await chrome.storage.local.get("t:" + m.id))["t:" + m.id] || []).length : 0;
+    });
+    if (lines < 3) await mp.waitForTimeout(250);
+  }
+  assert.ok(lines >= 3, "recorded: " + lines);
+  console.log("captions menu: opened, Turn on captions clicked, recorded (" + lines + " lines)");
+  await mp.close();
+}
+
 // --- Meet in another language: captions still turned on, recorded and hidden ----------------------
 {
   const lp = await ctx.newPage();

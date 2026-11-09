@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meeting Transcripts",
-  "version": "2.6.5",
+  "version": "2.7.0",
   "description": "Records the live captions of Google Meet, Microsoft Teams and Zoom calls in Chrome and saves each call as a Word document.",
   "permissions": [
     "storage",

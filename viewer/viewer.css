@@ -302,3 +302,7 @@ mark { background: var(--hit); color: inherit; border-radius: 0.1875rem; padding
 .import-wrap { position: relative; min-width: 0; }
 .import-wrap .btn { width: 100%; }
 .popover.up { top: auto; bottom: calc(100% + 0.375rem); left: 0; right: auto; min-width: 16rem; transform-origin: bottom left; }
+
+/* A message typed in the call's chat, among the spoken turns. */
+.chat-pill { display: inline-flex; align-items: center; height: 1.125rem; padding: 0 0.4375rem; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.02em; }
