@@ -829,6 +829,19 @@ console.log("zoom:", zm.title, "->", path.basename(zFile.filename), zm.link);
 assert.equal(zm.title, "Call with Ann Lee, Ben Cho");
 assert.equal(zm.link, "https://zoom.us/j/9876543210");
 
+// Zoom in a narrower window: Captions sits under More (…); still turned on.
+{
+  const zn = await ctx.newPage();
+  await zn.goto("https://app.zoom.us/wc/4445556667/join?more=1");
+  await zn.waitForFunction(() => window.done, null, { timeout: 30000 });
+  await zn.waitForTimeout(2000);
+  const [znm] = (await meetingsOf("zoom")).filter((m) => m.code === "4445556667");
+  const n = znm ? (await sw.evaluate((k) => chrome.storage.local.get(k).then((d) => d[k]), "t:" + znm.id) || []).length : 0;
+  assert.ok(n >= 3, "Zoom with Captions under More: captions turned on and recorded, " + n + " lines");
+  console.log("zoom, Captions under More: turned on, " + n + " lines");
+  await zn.close();
+}
+
 // --- rename a speaker, here and in future calls; the finished call's document is offered an update ---
 await v.goto(`chrome-extension://${id}/viewer/viewer.html#` + encodeURIComponent(zm.id));
 await v.click('button.spk[data-name="Ben Cho"]');
@@ -864,11 +877,12 @@ console.log("paused: captions left off");
 
 // --- turning a platform off: nothing is recorded there ------------------------------------------------
 await v.evaluate(() => MT.getSettings().then((s) => MT.saveSettings({ platforms: { ...s.platforms, zoom: false } })));
+const zoomCalls = (await meetingsOf("zoom")).length;
 const zp2 = await ctx.newPage();
 await zp2.goto("https://app.zoom.us/wc/1112223334/join");
 await zp2.waitForTimeout(5000);
 assert.ok(!(await zp2.$('[role="menu"], #live-transcription-subtitle')), "captions not even turned on");
-assert.equal((await meetingsOf("zoom")).length, 1, "no new Zoom meeting");
+assert.equal((await meetingsOf("zoom")).length, zoomCalls, "no new Zoom meeting");
 await zp2.close();
 console.log("zoom turned off: nothing recorded");
 

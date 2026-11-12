@@ -3,6 +3,11 @@
 Each version here becomes a release on GitHub, with the extension zip attached, as soon as
 it's pushed to `main` with the matching `version` in `manifest.json`.
 
+## 2.7.1
+
+- **Fixed: Zoom captions weren't turned on in a narrower window.** Zoom then moves *Show
+  Captions* from the toolbar into *More (…)*; the extension now looks there too.
+
 ## 2.7.0
 
 - **Fixed: captions weren't turned on in Google Meet any more.** Meet's captions button now

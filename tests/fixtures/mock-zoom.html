@@ -13,19 +13,38 @@
 <script>
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let overlay = null;
-document.querySelector('[aria-label="Captions"]').onclick = () => {
+// ?more=1: a narrower window, where Zoom keeps Captions under More (…).
+if (new URLSearchParams(location.search).get("more") === "1") {
+  const cc = document.querySelector('[aria-label="Captions"]');
+  const more = document.createElement("button");
+  more.setAttribute("aria-label", "More");
+  more.textContent = "…";
+  cc.replaceWith(more);
+  more.onclick = () => {
+    const m = document.createElement("div");
+    m.setAttribute("role", "menu");
+    // As in Zoom (November 2026): a panel of buttons, Show Captions among them.
+    m.innerHTML = '<button><svg></svg>Record</button><button id="moreCc"><svg></svg>Show Captions</button>' +
+      '<button><svg></svg>Whiteboards</button><button><svg></svg>Settings</button>';
+    document.body.append(m);
+    document.getElementById("moreCc").onclick = () => { m.remove(); showCaptions(); };
+  };
+}
+const openCaptionsMenu = () => {
   const m = document.createElement("div");
   m.setAttribute("role", "menu");
   m.innerHTML = '<div role="menuitem">Show Captions</div><div role="menuitem">View Full Transcript</div>';
-  m.firstChild.onclick = () => {
-    m.remove();
-    overlay = document.createElement("div");
-    overlay.id = "live-transcription-subtitle";
-    document.body.append(overlay);
-    run();
-  };
+  m.firstChild.onclick = () => { m.remove(); showCaptions(); };
   document.body.append(m);
 };
+function showCaptions() {
+  overlay = document.createElement("div");
+  overlay.id = "live-transcription-subtitle";
+  document.body.append(overlay);
+  run();
+}
+const ccButton = document.querySelector('[aria-label="Captions"]');
+if (ccButton) ccButton.onclick = openCaptionsMenu;
 async function line(speaker, steps) {
   document.getElementById("active").textContent = speaker;
   const it = document.createElement("div");
