@@ -71,11 +71,21 @@ const MT_PLATFORM = (() => {
     return me ? cleanName(me.textContent) : "";
   }
 
-  // The CC / Captions button, then "Show Captions" if it opens a menu.
+  // The CC / Captions button, then "Show Captions" if it opens a menu. In a narrower window
+  // Zoom moves Captions under More (…): it's looked for there too.
+  const CAPTIONS_RE = /^(captions|show captions|closed caption|cc|live transcript|show subtitle|subtitles)$/i;
+  const MORE_SEL = ['button[aria-label="More" i]', 'button[aria-label^="More " i]', '[class*="more-button"] button',
+    'button[class*="more-button"]'];
   async function enableCaptions() {
-    const btn = control(/^(captions|show captions|closed caption|cc|live transcript|show subtitle|subtitles)$/i) ||
+    let btn = control(CAPTIONS_RE) ||
       first(['button[aria-label*="caption" i]', 'button[aria-label*="subtitle" i]', 'button[aria-label*="transcript" i]']);
-    if (!btn) return;
+    if (!btn) {
+      const more = control(/^more$/i) || first(MORE_SEL);
+      if (!more) return;
+      more.click();
+      for (let waited = 0; waited <= 1200 && !(btn = control(CAPTIONS_RE)); waited += 150) await sleep(150);
+      if (!btn) { closeMenus(); return; }
+    }
     btn.click();
     await sleep(300);
     await clickWhenShown(/^(show captions|show subtitle|show subtitles|enable captions|turn on captions)$/i, 1200);
