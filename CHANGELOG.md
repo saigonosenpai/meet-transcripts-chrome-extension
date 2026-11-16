@@ -3,6 +3,13 @@
 Each version here becomes a release on GitHub, with the extension zip attached, as soon as
 it's pushed to `main` with the matching `version` in `manifest.json`.
 
+## 2.7.2
+
+- **Search the library by date.** "november", "nov 13", "13 November 2026", "2026-11",
+  "today", "yesterday", "this week", "last week", "this month" or "last month" show the calls
+  from then, not every call that mentions the word. Add words to search within them
+  ("november zoho"). The list says what it matched ("Calls in November 2026 · 6").
+
 ## 2.7.1
 
 - **Fixed: Zoom captions weren't turned on in a narrower window.** Zoom then moves *Show

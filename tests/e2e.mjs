@@ -1128,4 +1128,59 @@ await close();
   await run.close();
 }
 
+// --- searching the library by date ---------------------------------------------------------------
+{
+  const run = await launch();
+  const v = await run.ctx.newPage();
+  await v.goto(`chrome-extension://${id}/viewer/viewer.html`);
+  // The parser, with "now" fixed at Monday 16 November 2026, 10:00.
+  const parsed = await v.evaluate(() => {
+    const now = new Date(2026, 10, 16, 10);
+    const d = (y, m, day = 1) => new Date(y, m, day).getTime();
+    const q = (s) => { const r = MT.dateQuery(s, now); return r && [r.from, r.to, r.rest]; };
+    return {
+      november: [q("november"), [d(2026, 10), d(2026, 11), ""]],
+      nov: [q("Nov"), [d(2026, 10), d(2026, 11), ""]],
+      december: [q("december"), [d(2025, 11), d(2026, 0), ""]], // the last one, not next month
+      nov13: [q("nov 13"), [d(2026, 10, 13), d(2026, 10, 14), ""]],
+      long: [q("13th November 2026"), [d(2026, 10, 13), d(2026, 10, 14), ""]],
+      iso: [q("2026-10"), [d(2026, 9), d(2026, 10), ""]],
+      isoDay: [q("2026-11-13"), [d(2026, 10, 13), d(2026, 10, 14), ""]],
+      today: [q("today"), [d(2026, 10, 16), d(2026, 10, 17), ""]],
+      yesterday: [q("yesterday"), [d(2026, 10, 15), d(2026, 10, 16), ""]],
+      lastWeek: [q("last week"), [d(2026, 10, 9), d(2026, 10, 16), ""]],
+      lastMonth: [q("last month"), [d(2026, 9), d(2026, 10), ""]],
+      withWords: [q("november zoho"), [d(2026, 10), d(2026, 11), "zoho"]],
+      words: [q("zoho"), null], decisions: [q("decisions"), null], marketo: [q("marketo"), null], number: [q("13"), null],
+    };
+  });
+  for (const [name, [got, want]] of Object.entries(parsed)) assert.deepEqual(got, want, "date search: " + name);
+  // In the library: October calls that mention November don't show up for "november".
+  const T = (y, m, d, h = 10) => new Date(y, m, d, h).getTime();
+  await v.evaluate(async (calls) => {
+    for (const [id, title, at, text] of calls)
+      await MT.saveMeeting({ id, code: "abc-defg-hij", eventTitle: title, startedAt: at, endedAt: at + 600_000 }, [{ speaker: "Ann", text, ts: at }]);
+  }, [["o1", "October planning", T(2026, 9, 29), "Let's ship this in November."],
+      ["o2", "Kickoff", T(2026, 9, 27), "The November launch with Zoho."],
+      ["n1", "Weekly sync", T(2026, 10, 13), "All good."],
+      ["n2", "Zoho review", T(2026, 10, 2), "Zoho integration is done."]]);
+  await v.reload();
+  const listFor = async (text) => {
+    await v.fill("#libSearch", text);
+    await v.waitForTimeout(400);
+    return v.evaluate(() => [...document.querySelectorAll("#list li:not(.day) .t")].map((e) => e.textContent));
+  };
+  const nov = new Date().getFullYear() === 2026 && new Date().getMonth() >= 10; // the test data is dated 2026
+  if (nov) {
+    assert.deepEqual(await listFor("november"), ["Weekly sync", "Zoho review"], "only November's calls");
+    assert.match(await v.textContent("#list .day.note"), /^Calls in November 2026 · 2$/);
+    assert.deepEqual(await listFor("november zoho"), ["Zoho review"], "November's calls that mention Zoho");
+    assert.deepEqual(await listFor("oct 27"), ["Kickoff"], "one day");
+  }
+  assert.deepEqual(await listFor("2026-10"), ["October planning", "Kickoff"], "October by number");
+  assert.deepEqual((await listFor("zoho")).sort(), ["Kickoff", "Zoho review"], "plain words search everything as before");
+  console.log("library search by date: months, days, 2026-10, today/last week…, with words; text search unchanged");
+  await run.close();
+}
+
 console.log("ALL CHECKS PASSED");

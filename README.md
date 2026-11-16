@@ -253,7 +253,8 @@ document) or **Replace this document** (your edits in Word are lost).
 ### The library (All Transcripts)
 
 - Meetings grouped by day, each labelled Meet, Teams or Zoom, with **search across all of
-  them**.
+  them**. Search by date too: *november*, *nov 13*, *2026-11*, *last week*, *this month*;
+  add words to search within them (*november zoho*).
 - Speaker turns with timestamps (hover a timestamp for the clock time) and each person's
   share of the talking.
 - **Click a speaker's name to rename them**, in this meeting or (with *Also in future

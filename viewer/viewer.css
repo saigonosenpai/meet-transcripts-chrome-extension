@@ -306,3 +306,6 @@ mark { background: var(--hit); color: inherit; border-radius: 0.1875rem; padding
 /* A message typed in the call's chat, among the spoken turns. */
 .chat-pill { display: inline-flex; align-items: center; height: 1.125rem; padding: 0 0.4375rem; border-radius: 999px;
   background: var(--accent-soft); color: var(--accent); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.02em; }
+
+/* What a date search matched ("Calls in November 2026 · 6"). */
+#list .day.note { padding-top: 0.5rem; color: var(--accent); text-transform: none; letter-spacing: 0; font-size: 0.75rem; }

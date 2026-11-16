@@ -63,13 +63,23 @@ async function buildIndex() {
 
 function renderList() {
   const list = $("list");
-  const q = libQuery.toLowerCase();
-  const shown = meetings.filter((m) => !q || (libIndex && libIndex[m.id]
-    ? libIndex[m.id].includes(q)
-    : (MT.title(m) + " " + (m.speakers || []).join(" ")).toLowerCase().includes(q)));
+  // A date in the search ("november", "nov 13", "last week") picks the calls by when they were;
+  // the rest of the words search them as usual.
+  const when = MT.dateQuery(libQuery);
+  const q = (when ? when.rest : libQuery).toLowerCase();
+  const shown = meetings.filter((m) => (!when || (m.startedAt >= when.from && m.startedAt < when.to)) &&
+    (!q || (libIndex && libIndex[m.id]
+      ? libIndex[m.id].includes(q)
+      : (MT.title(m) + " " + (m.speakers || []).join(" ")).toLowerCase().includes(q))));
   $("emptyLib").hidden = meetings.length > 0;
   let lastDay = "";
   list.innerHTML = "";
+  if (when) {
+    const note = document.createElement("li");
+    note.className = "day note";
+    note.textContent = `${when.label}${q ? ` matching “${q}”` : ""} · ${shown.length}`;
+    list.append(note);
+  }
   for (const m of shown) {
     const day = new Date(m.startedAt).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     if (day !== lastDay) {
@@ -91,7 +101,7 @@ function renderList() {
     li.addEventListener("keydown", (e) => { if (e.key === "Enter") location.hash = encodeURIComponent(m.id); });
     list.append(li);
   }
-  if (q && !shown.length) list.innerHTML = `<li class="day">No meetings match</li>`;
+  if ((q || when) && !shown.length) list.insertAdjacentHTML("beforeend", `<li class="day">No meetings match</li>`);
 }
 
 // --- one meeting --------------------------------------------------------------------------
@@ -459,7 +469,8 @@ function bindActions() {
   let libTimer;
   $("libSearch").addEventListener("input", async (e) => {
     libQuery = e.target.value.trim();
-    if (libQuery.length >= 3 && !libIndex) await buildIndex();
+    const words = (MT.dateQuery(libQuery) || { rest: libQuery }).rest;
+    if (words.length >= 3 && !libIndex) await buildIndex();
     clearTimeout(libTimer);
     libTimer = setTimeout(renderList, 120);
   });
